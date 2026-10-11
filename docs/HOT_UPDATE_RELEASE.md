@@ -14,20 +14,20 @@
    - exe：`pnpm exec tauri build` → `src-tauri/target/release/bundle/nsis/拾序_<ver>_x64-setup.exe` + `.sig`
    - apk：补丁版 `E:\devtools\tauri-cli-src\tauri-cli-2.12.1\target\release\cargo-tauri.exe android build --ci --apk`（四坑见 [`ANDROID_APK_BUILD.md`](ANDROID_APK_BUILD.md)）
 3. **一键发布**：`uv run --with paramiko python scripts/publish_release.py --notes "<更新卡文案（白话）>" --body "<Release 正文（白话）>"`
-   = 验签（缺 `.sig` 自动补签）→ 写清单 → SFTP 服务器 → `git push -f origin v0.1.0`（刷 source code）→ 替换 GitHub 资产 → 更新正文 → 回读。
-4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读恰两件。
+   = 验签（缺 `.sig` 自动补签）→ **版本化资产暂存 + 内容校验**（SHA-256 确认一致才复用，线上引用资产绝不覆盖）→ 逐 URL 大小校验（无法确认即停）→ **清单原子翻转放最后**（SFTP posix_rename 单翻转点，失败关闭、旧清单保持可读）→ `git push -f origin v0.1.0`（刷 source code）→ 更新正文 → **刷新固定名别名**（上传后校验；失败=报「部分完成」exit 2 + 恢复路径，不报成功）→ 清理过期版本化资产（保留近 2 版，永不删线上引用/别名）→ 回读。**翻转前任何失败 = 线上零变化，直接重跑即可。**
+4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`，保留最近两个版本（PR-006 加固后的已批准资产策略，2026-10-11）。
 
 ## 2. 关键位置
 
-| 东西         | 位置                                                                                                                                                                              |
-| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 更新签名私钥 | `E:\devtools\tauri-keys\daymark.key`（**绝不入库**；丢失=所有旧装机无法再更新）；公钥在 `tauri.conf → plugins.updater.pubkey`                                                     |
-| 清单/镜像    | 服务器 `/opt/daymark/update/latest.json`（Caddy `handle_path /update/*` + `ACAO *`）                                                                                              |
-| GitHub 仓库  | `violetsnowl/Daymark`（旧地址 301；发布脚本内已是规范名）                                                                                                                         |
-| 发布脚本     | `scripts/publish_release.py`（ASCII 资产别名 `daymark_<ver>_x64-setup.exe`、删除与正文走 `curl -L`、上传 URL 百分号编码）                                                         |
-| 安卓安装插件 | `src-tauri/gen/android/.../DaymarkSettingsPlugin.kt`（设置页/安装器挑选/DownloadManager 三命令）                                                                                  |
-| 前端更新逻辑 | `apps/web/src/updateService.ts`（平台分流、后台轮询、完成事件/通知/持久标记）                                                                                                     |
-| 真机验证方法 | 桌面壳带 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` 启动 → WebSocket CDP `Runtime.evaluate`（记得 `awaitPromise`）读 DOM/控制台；安卓无 CDP，靠真机口述 |
+| 东西         | 位置                                                                                                                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 更新签名私钥 | `E:\devtools\tauri-keys\daymark.key`（**绝不入库**；丢失=所有旧装机无法再更新）；公钥在 `tauri.conf → plugins.updater.pubkey`                                                                                      |
+| 清单/镜像    | 服务器 `/opt/daymark/update/latest.json`（Caddy `handle_path /update/*` + `ACAO *`）                                                                                                                               |
+| GitHub 仓库  | `violetsnowl/Daymark`（旧地址 301；发布脚本内已是规范名）                                                                                                                                                          |
+| 发布脚本     | `scripts/publish_release.py`（版本化资产 `daymark_<ver>_x64-setup.exe`/`app-universal-release-<ver>.apk` + 固定名别名 `app-universal-release.apk`；清单最后原子翻转；删除与正文走 `curl -L`、上传 URL 百分号编码） |
+| 安卓安装插件 | `src-tauri/gen/android/.../DaymarkSettingsPlugin.kt`（设置页/安装器挑选/DownloadManager 三命令）                                                                                                                   |
+| 前端更新逻辑 | `apps/web/src/updateService.ts`（平台分流、后台轮询、完成事件/通知/持久标记）                                                                                                                                      |
+| 真机验证方法 | 桌面壳带 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9333` 启动 → WebSocket CDP `Runtime.evaluate`（记得 `awaitPromise`）读 DOM/控制台；安卓无 CDP，靠真机口述                                  |
 
 ## 3. 踩坑速查（现象 → 原因 → 解）
 

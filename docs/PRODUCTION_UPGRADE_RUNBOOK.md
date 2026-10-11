@@ -139,11 +139,12 @@ curl -s https://api.daymark.top/api/v1/health   # 期望 200 健康 JSON
 （脚本顺序已加固，见 `scripts/publish_release.py` 头注与 PR-006 记档）→ 按
 HOT_UPDATE_RELEASE.md 终检（公网清单 200、Content-Length、验签）。
 
-**政策差异提示（发版前需用户确认）**：加固脚本的 GitHub 资产改为版本化命名
+**已批准资产策略（2026-10-11 用户裁决）**：GitHub 资产版本化命名
 （`daymark_<v>_x64-setup.exe` + `app-universal-release-<v>.apk`），固定名
-`app-universal-release.apk` 保留为**别名**（翻转后刷新，兼容 README/客户端回退）；
-Release 资产从「恰两件」变为「每版本两件 + 别名，保留近 2 版」。README 6.2 与
-HOT_UPDATE_RELEASE.md 第 18 行的资产计数措辞需在发版轮**同步修订**（本轮未动）。
+`app-universal-release.apk` 保留为**兼容别名**（翻转后刷新并校验，兼容 README/客户端回退）；
+Release 资产 = 每版本两件 + 别名，保留最近 2 个版本，清理永不触及线上引用。
+README 与 HOT_UPDATE_RELEASE.md 的资产数量/命名/发布顺序说明**已同步修订**。
+固定 tag `v0.1.0` 策略与正式版本号不变。
 
 ---
 
