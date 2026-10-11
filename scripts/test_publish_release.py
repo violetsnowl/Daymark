@@ -37,7 +37,8 @@ class FakeTransport:
     def __init__(self, assets=(), live=None, probe_results=None, fetch_sizes=None,
                  asset_digests=None, download_shas=None, server_files=None,
                  fail_on=None, corrupt_server_puts=(),
-                 flip_actually_happens=False, lose_live_after_flip_fail=False):
+                 flip_actually_happens=False, lose_live_after_flip_fail=False,
+                 digest_omitted=(), download_errors=(), server_read_errors=()):
         self.events = []
         self.assets = []
         self.asset_shas = {}
@@ -60,6 +61,9 @@ class FakeTransport:
         self.corrupt_server_puts = set(corrupt_server_puts)
         self.flip_actually_happens = flip_actually_happens
         self.lose_live_after_flip_fail = lose_live_after_flip_fail
+        self.digest_omitted = set(digest_omitted)      # GitHub provides no digest
+        self.download_errors = set(download_errors)    # download-hash unavailable
+        self.server_read_errors = set(server_read_errors)  # read → unconfirmable
 
     def _record(self, ev):
         if self.fail_on is not None:
@@ -85,9 +89,13 @@ class FakeTransport:
         return os.path.getsize(path)
 
     def asset_digest(self, name):
+        if name in self.digest_omitted:
+            return None  # simulate GitHub providing no digest
         return self.asset_digests.get(name) or self.asset_shas.get(name)
 
     def download_sha256(self, url):
+        if url in self.download_errors:
+            raise OSError("simulated download/hash failure")
         name = url.rsplit("/", 1)[-1]
         return self.download_shas.get(url) or self.asset_shas.get(name) or "unknown-content"
 
@@ -102,7 +110,11 @@ class FakeTransport:
                                      else pr.sha256_file(local))
 
     def server_file_sha256(self, remote):
-        return self.server_files.get(remote)
+        if remote in self.server_read_errors:
+            raise OSError("simulated server read failure")  # unconfirmable
+        if remote not in self.server_files:
+            raise FileNotFoundError(remote)  # provably absent
+        return self.server_files[remote]
 
     def server_atomic_put(self, local, remote):
         # Simulate: the rename either lands or doesn't; the ack may be lost.
@@ -463,6 +475,102 @@ class PublishFlowTest(unittest.TestCase):
         for name in (cfg.exe_name, cfg.apk_name):
             self.assertNotIn(("upload", name), t.events)
             self.assertNotIn(("delete", name), t.events)
+
+    # -- final gap round: hash evidence & post-flip partial reporting ------
+    def test_uploaded_assets_verified_via_download_hash_when_digest_missing(self):
+        cfg = make_cfg(self.tmp.name)
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          digest_omitted={cfg.exe_name, cfg.apk_name})
+        out, _ = run_publish(t, cfg)
+        self.assertIn("FLIP", [e[0] for e in t.events])
+        self.assertIn("完成。清单", out, "下载哈希一致时应通过（证据已取得）")
+
+    def test_uploaded_asset_unconfirmable_content_blocks_flip(self):
+        cfg = make_cfg(self.tmp.name)
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          digest_omitted={cfg.exe_name},
+                          download_errors={_gh_url(cfg.exe_name)})
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertNotIn("FLIP", [e[0] for e in t.events], "内容无法确认禁止翻转")
+        self.assertIn("无法确认", err.getvalue())
+
+    def test_alias_github_missing_digest_still_verified(self):
+        cfg = make_cfg(self.tmp.name)
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          digest_omitted={pr.LEGACY_APK_NAME},
+                          download_shas={_gh_url(pr.LEGACY_APK_NAME): "wrong-sha"})
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 2, "别名校验不符=部分完成而非成功")
+        self.assertIn("部分完成", out.getvalue())
+        self.assertIn("GitHub 别名", out.getvalue())
+        self.assertIn("校验不符", out.getvalue(), "缺 digest 时必须走下载哈希真实校验")
+        self.assertNotIn("完成。清单", out.getvalue())
+
+    def test_server_referenced_file_unconfirmable_read_never_overwrites(self):
+        cfg = make_cfg(self.tmp.name)
+        exe_remote = f"{pr.SERVER_UPDATE_DIR}/{cfg.exe_name}"
+        t = FakeTransport(
+            assets=[(cfg.exe_name, cfg.exe_size, pr.sha256_file(cfg.exe)),
+                    (cfg.apk_name, cfg.apk_size, pr.sha256_file(cfg.apk))],
+            live=cfg.manifest,  # exe URL is live-referenced
+            server_read_errors={exe_remote})
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertNotIn(("server_put", exe_remote), t.events, "读取状态不明不得覆盖")
+        self.assertNotIn("FLIP", [e[0] for e in t.events])
+        self.assertIn("无法确认", err.getvalue())
+
+    def test_server_uploaded_file_readback_verified(self):
+        cfg = make_cfg(self.tmp.name)
+        exe_remote = f"{pr.SERVER_UPDATE_DIR}/{cfg.exe_name}"
+        t = FakeTransport(
+            assets=[(cfg.exe_name, cfg.exe_size, pr.sha256_file(cfg.exe)),
+                    (cfg.apk_name, cfg.apk_size, pr.sha256_file(cfg.apk))],
+            live=old_live_manifest(),
+            corrupt_server_puts={exe_remote})  # upload lands with wrong bytes
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit), contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertIn(("server_put", exe_remote), t.events, "应先上传")
+        self.assertNotIn("FLIP", [e[0] for e in t.events], "读回校验不过禁止翻转")
+        self.assertIn("读回", err.getvalue())
+
+    def test_tag_failure_reports_partial_not_success(self):
+        cfg = make_cfg(self.tmp.name)
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          fail_on="move_tag")
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("部分完成", out.getvalue())
+        self.assertIn("tag", out.getvalue(), "必须点名失败步骤")
+        self.assertNotIn("完成。清单", out.getvalue())
+        self.assertEqual(t.live["version"], cfg.manifest["version"], "已生效清单不回滚")
+
+    def test_body_failure_reports_partial_not_success(self):
+        cfg = make_cfg(self.tmp.name)
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          fail_on="set_body")
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 2)
+        self.assertIn("部分完成", out.getvalue())
+        self.assertIn("正文", out.getvalue(), "必须点名失败步骤")
+        self.assertNotIn("完成。清单", out.getvalue())
+        self.assertEqual(t.live["version"], cfg.manifest["version"], "已生效清单不回滚")
 
     # -- cleanup policy ----------------------------------------------------
     def test_cleanup_keeps_recent_versions_live_urls_and_alias(self):

@@ -112,6 +112,7 @@ def partial_release(errors: list[str]) -> None:
     print("⚠ 发布处于部分完成状态：线上清单已翻转并生效，但收尾步骤失败：")
     for e in errors:
         print(f"   - {e}")
+    print("   清单状态：已生效，不会因收尾失败回滚（已确认生效的清单不得盲目回滚）。")
     print("   诊断：固定名别名仅服务旧链接与客户端离线回退，清理仅影响过期版本化资产；")
     print("        清单一致性不受影响，客户端更新按新清单工作。")
     print("   安全恢复路径：直接重跑本脚本（幂等：已确认内容一致的资产会复用，")
@@ -244,16 +245,28 @@ def select_cleanup(assets: list[dict], live_urls: set[str],
     return out
 
 
+def gh_asset_url(name: str) -> str:
+    return f"https://github.com/violetsnowl/Daymark/releases/download/{TAG}/{name}"
+
+
+def remote_sha256(t, name: str, url: str) -> str | None:
+    """Best CONFIRMED SHA-256 of remote asset content: GitHub digest when
+    present, otherwise download-and-hash. None = unconfirmable (a missing
+    digest is never treated as a pass)."""
+    d = t.asset_digest(name)
+    if d:
+        return d
+    try:
+        return t.download_sha256(url)
+    except Exception:  # noqa: BLE001 — download/hash failure = unconfirmable
+        return None
+
+
 def content_matches(t, name: str, url: str, local_sha: str) -> bool | None:
     """True/False when the remote content is provably identical/different to
     the local build; None when it cannot be confirmed either way."""
-    d = t.asset_digest(name)
-    if d:
-        return d == local_sha
-    try:
-        return t.download_sha256(url) == local_sha
-    except Exception:  # noqa: BLE001 — download/hash failure = unconfirmable
-        return None
+    got = remote_sha256(t, name, url)
+    return None if got is None else got == local_sha
 
 
 # --------------------------------------------------------------------------
@@ -356,16 +369,20 @@ class RealTransport:
             sftp.close()
             client.close()
 
-    def server_file_sha256(self, remote: str) -> str | None:
-        """SHA-256 of the server file; None when the file is absent."""
+    def server_file_sha256(self, remote: str) -> str:
+        """SHA-256 of the server file. Raises FileNotFoundError ONLY when the
+        file is provably absent; every other I/O failure propagates as an
+        UNCONFIRMABLE state — callers must fail closed, never guess."""
         client, sftp = self._sftp()
         try:
             try:
-                fh = sftp.open(remote, "rb")
-            except IOError:
-                return None
+                sftp.stat(remote)
+            except IOError as exc:
+                if getattr(exc, "errno", None) == 2:
+                    raise FileNotFoundError(remote) from exc
+                raise  # uncertain → caller fails closed
             h = hashlib.sha256()
-            with fh:
+            with sftp.open(remote, "rb") as fh:
                 for chunk in iter(lambda: fh.read(1 << 20), b""):
                     h.update(chunk)
             return h.hexdigest()
@@ -501,22 +518,42 @@ def publish(t, cfg) -> None:
             uploaded = t.upload_asset(name, path)
             if uploaded and uploaded != want:
                 die(f"上传大小不符 {name}: {uploaded} != {want}")
-            d = t.asset_digest(name)
-            if d and d != local_sha:
-                die(f"上传后内容校验不符 {name}——中止（未翻转）")
+            # Pre-flip we need CONFIRMED content evidence for every upload:
+            # GitHub digest, or download-hash when the digest is missing.
+            got = remote_sha256(t, name, gh_asset_url(name))
+            if got is None:
+                die(f"上传后无法确认 {name} 内容（digest 缺失且下载哈希不可得）——禁止翻转")
+            if got != local_sha:
+                die(f"上传后内容校验不符 {name}（{got} != {local_sha}）——中止（未翻转）")
 
-    # Versioned server copies obey the same immutability rule.
+    # Versioned server copies obey the same immutability rule. States are
+    # distinguished strictly: provably absent / hash identical / hash differs
+    # / read failure-or-unconfirmable. Only "absent" or "differs AND not
+    # live-referenced" may upload; unconfirmable ALWAYS fails closed.
     for path, name in ((cfg.exe, exe_name), (cfg.apk, apk_name)):
         local_sha = sha256_file(path)
         remote = f"{SERVER_UPDATE_DIR}/{name}"
-        remote_sha = t.server_file_sha256(remote)
+        try:
+            remote_sha = t.server_file_sha256(remote)
+        except FileNotFoundError:
+            remote_sha = None  # provably absent → safe to upload
+        except Exception as exc:  # noqa: BLE001 — unconfirmable → fail closed
+            die(f"服务器版本化文件 {name} 状态读取失败（{exc}）——无法确认，失败关闭，禁止覆盖/翻转")
         if remote_sha is not None:
             if remote_sha == local_sha:
                 continue  # content confirmed identical — reuse, no re-upload
             if f"{BASE}/{name}" in live_urls:
-                die(f"服务器版本化文件 {name} 已被线上清单引用且内容未确认一致——不得覆盖，中止")
-            # Unreferenced leftover from a failed run → overwrite (repeatable).
+                die(f"服务器版本化文件 {name} 已被线上清单引用且内容不一致——不得覆盖，中止")
+            # Unreferenced leftover from a failed run, proven different →
+            # overwrite (safe, repeatable).
         t.server_put(path, remote)
+        # Pre-flip content evidence: read the file back and verify.
+        try:
+            got = t.server_file_sha256(remote)
+        except Exception as exc:  # noqa: BLE001
+            die(f"服务器版本化文件 {name} 上传后读回失败（{exc}）——无法确认，禁止翻转")
+        if got != local_sha:
+            die(f"服务器版本化文件 {name} 上传后读回校验不符（{got} != {local_sha}）——禁止翻转")
 
     # --- Phase 2: VERIFY (strict: unconfirmed size ABORTS the flip) -------
     for url, want in manifest_targets(cfg.manifest, cfg.exe_size, cfg.apk_size):
@@ -553,12 +590,19 @@ def publish(t, cfg) -> None:
                 f"先人工读取 {MANIFEST_URL} 确认实际状态")
     print(f"[2/6] 线上清单已原子翻转 → {cfg.manifest['version']}")
 
-    # --- Phase 4: tag + body ---------------------------------------------
-    t.move_tag()
-    print(f"[3/6] tag {TAG} 已强推至 HEAD（Source code 压缩包随之刷新）")
+    # --- Phase 4: tag + body (post-flip: failures = PARTIAL, never hidden) --
+    try:
+        t.move_tag()
+        print(f"[3/6] tag {TAG} 已强推至 HEAD（Source code 压缩包随之刷新）")
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
+        post_errors.append(f"tag {TAG} 移动失败: {exc}（source code 压缩包未刷新；"
+                           f"重跑本脚本可补，或手动 git tag -f {TAG} HEAD && git push -f origin {TAG}）")
     if cfg.body:
-        t.set_body(rel["id"], cfg.body)
-        print("[4/6] Release 正文已更新（白话版）")
+        try:
+            t.set_body(rel["id"], cfg.body)
+            print("[4/6] Release 正文已更新（白话版）")
+        except (Exception, SystemExit) as exc:  # noqa: BLE001
+            post_errors.append(f"Release 正文更新失败: {exc}（重跑本脚本或手动 PATCH 正文）")
     else:
         print("[4/6] Release 正文未变（--body 留空）")
 
@@ -573,11 +617,13 @@ def publish(t, cfg) -> None:
         uploaded = t.upload_asset(LEGACY_APK_NAME, cfg.apk)
         if uploaded and uploaded != cfg.apk_size:
             raise RuntimeError(f"GitHub 别名大小不符: {uploaded} != {cfg.apk_size}")
-        d = t.asset_digest(LEGACY_APK_NAME)
-        if d and d != apk_sha:
-            raise RuntimeError("GitHub 别名上传后内容校验不符")
+        got = remote_sha256(t, LEGACY_APK_NAME, gh_asset_url(LEGACY_APK_NAME))
+        if got is None:
+            raise RuntimeError("GitHub 别名上传后无法确认内容（digest 缺失且下载哈希不可得）")
+        if got != apk_sha:
+            raise RuntimeError(f"GitHub 别名上传后内容校验不符（{got} != {apk_sha}）")
         print(f"[5/6] GitHub 固定名别名已刷新并校验（{LEGACY_APK_NAME}）")
-    except Exception as exc:  # noqa: BLE001 — recorded, reported at the end
+    except (Exception, SystemExit) as exc:  # noqa: BLE001 — reported at the end
         post_errors.append(f"GitHub 别名 {LEGACY_APK_NAME} 刷新失败: {exc}")
     try:
         t.server_put(cfg.apk, f"{SERVER_UPDATE_DIR}/{LEGACY_APK_NAME}")
@@ -585,7 +631,7 @@ def publish(t, cfg) -> None:
         if d != apk_sha:
             raise RuntimeError(f"VPS 别名内容校验不符: {d} != {apk_sha}")
         print(f"[5/6] VPS 固定名别名已刷新并校验（{LEGACY_APK_NAME}）")
-    except Exception as exc:  # noqa: BLE001
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
         post_errors.append(f"VPS 别名 {LEGACY_APK_NAME} 刷新失败: {exc}")
 
     # --- Phase 6: cleanup (never live-referenced, never aliases) ----------
@@ -598,7 +644,7 @@ def publish(t, cfg) -> None:
             print(f"[6/6] 已清理旧版本资产: {a['name']}")
         names = sorted(a["name"] for a in t.get_release()["assets"])
         print(f"[6/6] 回读资产: {names}")
-    except Exception as exc:  # noqa: BLE001
+    except (Exception, SystemExit) as exc:  # noqa: BLE001
         post_errors.append(f"清理/回读失败: {exc}")
 
     if post_errors:
