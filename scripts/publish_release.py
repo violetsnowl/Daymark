@@ -603,15 +603,21 @@ def publish(t, cfg) -> None:
             die(f"清单翻转失败（翻转异常: {exc}）且线上清单回读也失败（回读异常: {read_exc}）——"
                 f"清单是否生效无法确认【状态不明】。已停止 tag/正文/别名/清理等全部后续步骤，"
                 f"不回滚、不盲目重试。请先人工读取 {MANIFEST_URL} 确认实际状态，再决定后续动作")
-        if (live_after is not None
-                and live_after.get("version") == cfg.manifest["version"]
-                and live_after.get("platforms") == cfg.manifest["platforms"]):
+        # Strict three-way classification — "old intact" must be PROVEN by
+        # equality with the pre-flip manifest, not assumed from "not new":
+        #   1) equals the expected new manifest  → treat as flipped, continue
+        #   2) equals the saved pre-flip manifest → old manifest proven intact
+        #   3) None / anything else (third version, foreign content) → UNKNOWN
+        if live_after == cfg.manifest:
             print(f"[2/6] WARN 翻转回执丢失（{exc}）但线上已是新清单——按已翻转继续")
-        elif live_after is not None:
+        elif live_after == live:
             die(f"清单翻转失败（{exc}）；已读回确认线上仍是旧清单、完好可读，可直接重跑")
         else:
-            die(f"清单翻转失败且线上清单状态不明（{exc}）；已停止——勿盲目重试，"
-                f"先人工读取 {MANIFEST_URL} 确认实际状态")
+            got = ("None（未取到清单）" if live_after is None else
+                   f"版本 {live_after.get('version')!r} 的第三方内容（与新旧清单均不一致）")
+            die(f"清单翻转失败（翻转异常: {exc}）后回读结果无法归类：{got}——【状态不明】。"
+                f"不得视为旧清单完好；已停止 tag/正文/别名/清理等全部后续步骤，"
+                f"不回滚、勿盲目重试。请先人工读取 {MANIFEST_URL} 核实实际状态，再决定后续动作")
     print(f"[2/6] 线上清单已原子翻转 → {cfg.manifest['version']}")
 
     # --- Phase 4: tag + body (post-flip: failures = PARTIAL, never hidden) --
@@ -661,22 +667,29 @@ def publish(t, cfg) -> None:
     # --- Phase 6: cleanup (never live-referenced, never aliases) ----------
     try:
         rel3 = t.get_release()
-        live3 = t.fetch_json(MANIFEST_URL) or live
-        live3_urls = {e["url"] for e in live3["platforms"].values()}
-        planned = select_cleanup(rel3["assets"], live3_urls, cfg.keep_versions)
-        deleted_names = []
-        for a in planned:
-            t.delete_asset(a["id"], a["name"])
-            deleted_names.append(a["name"])
-            print(f"[6/6] 已清理旧版本资产: {a['name']}")
-        # Read-back: every planned deletion must actually be GONE.
-        remaining = {x["name"] for x in t.get_release()["assets"]}
-        still_there = [n for n in deleted_names if n in remaining]
-        if still_there:
+        live3 = t.fetch_json(MANIFEST_URL)
+        if live3 is None:
+            # Never substitute the pre-flip manifest for an unreadable live
+            # one — cleanup would then compute deletions against stale refs.
             post_errors.append(
-                f"清理回读发现目标仍存在: {', '.join(still_there)}（删除未生效，需人工处理）")
-        names = sorted(remaining)
-        print(f"[6/6] 回读资产: {names}")
+                "清理未执行：当前线上清单读取为空（拒绝以翻转前旧清单代替）——"
+                "清单已生效但清理未执行；重跑本脚本可补做清理")
+        else:
+            live3_urls = {e["url"] for e in live3["platforms"].values()}
+            planned = select_cleanup(rel3["assets"], live3_urls, cfg.keep_versions)
+            deleted_names = []
+            for a in planned:
+                t.delete_asset(a["id"], a["name"])
+                deleted_names.append(a["name"])
+                print(f"[6/6] 已清理旧版本资产: {a['name']}")
+            # Read-back: every planned deletion must actually be GONE.
+            remaining = {x["name"] for x in t.get_release()["assets"]}
+            still_there = [n for n in deleted_names if n in remaining]
+            if still_there:
+                post_errors.append(
+                    f"清理回读发现目标仍存在: {', '.join(still_there)}（删除未生效，需人工处理）")
+            names = sorted(remaining)
+            print(f"[6/6] 回读资产: {names}")
     except (Exception, SystemExit) as exc:  # noqa: BLE001
         post_errors.append(f"清理/回读失败: {exc}")
 

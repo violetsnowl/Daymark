@@ -40,7 +40,8 @@ class FakeTransport:
                  fail_on=None, corrupt_server_puts=(),
                  flip_actually_happens=False, lose_live_after_flip_fail=False,
                  digest_omitted=(), download_errors=(), server_read_errors=(),
-                 undeletable=(), fetch_json_fails_after_flip=False):
+                 undeletable=(), fetch_json_fails_after_flip=False,
+                 fetch_json_seq=None):
         self.events = []
         self.assets = []
         self.asset_shas = {}
@@ -69,6 +70,8 @@ class FakeTransport:
         self.undeletable = set(undeletable)            # delete "succeeds" but asset stays
         self.fetch_json_fails_after_flip = fetch_json_fails_after_flip
         self._fetch_broken = False
+        # Per-call results for fetch_json (dict / None / Exception to raise).
+        self.fetch_json_seq = list(fetch_json_seq) if fetch_json_seq is not None else None
 
     def _record(self, ev):
         if self.fail_on is not None:
@@ -141,6 +144,13 @@ class FakeTransport:
         if self._fetch_broken:
             raise RuntimeError("simulated manifest read failure")
         self._record(("fetch_json",))
+        if self.fetch_json_seq is not None:
+            if not self.fetch_json_seq:
+                return None
+            item = self.fetch_json_seq.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
         return self.live
 
     def probe(self, url):
@@ -666,6 +676,71 @@ class PublishFlowTest(unittest.TestCase):
         self.assertNotIn(("upload", pr.LEGACY_APK_NAME), t.events, "状态不明不得继续别名")
         self.assertNotIn(("server_put", f"{pr.SERVER_UPDATE_DIR}/{pr.LEGACY_APK_NAME}"),
                          t.events, "状态不明不得继续别名")
+
+    # -- final safety round: manifest-state strictness --------------------
+    def test_flip_failure_readback_third_manifest_reports_unknown(self):
+        cfg = make_cfg(self.tmp.name)
+        third = {"version": "9.9.9", "notes": "third-party",
+                 "pub_date": "2030-01-01T00:00:00Z",
+                 "platforms": old_live_manifest()["platforms"]}
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          fail_on=("FLIP", f"{pr.SERVER_UPDATE_DIR}/latest.json"),
+                          fetch_json_seq=[old_live_manifest(), third])
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 1)
+        msg = err.getvalue()
+        self.assertIn("状态不明", msg)
+        self.assertIn("人工", msg, "必须要求人工核实线上 latest.json")
+        self.assertNotIn("旧清单、完好可读", msg, "第三方内容不得误判为旧清单完好")
+        self.assertNotIn("按已翻转继续", out.getvalue(), "第三方内容不得误判为新清单生效")
+        ev = [e[0] for e in t.events]
+        self.assertNotIn("move_tag", ev)
+        self.assertNotIn("set_body", ev)
+        self.assertNotIn("delete", ev)
+        self.assertNotIn(("upload", pr.LEGACY_APK_NAME), t.events)
+
+    def test_cleanup_read_none_reports_partial_without_deletes(self):
+        cfg = make_cfg(self.tmp.name)
+        stale = [("daymark_0.1.12_x64-setup.exe", 10), ("app-universal-release-0.1.12.apk", 10),
+                 (pr.LEGACY_APK_NAME, 10)]
+        t = FakeTransport(assets=stale, live=old_live_manifest(),
+                          fetch_json_seq=[old_live_manifest(), None])
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 2, "清单已生效但清理未执行=部分完成")
+        s = out.getvalue()
+        self.assertIn("部分完成", s)
+        self.assertIn("清理未执行", s, "必须点名清理未执行")
+        self.assertNotIn("完成。清单", s)
+        deleted = {e[1] for e in t.events if e[0] == "delete"}
+        self.assertNotIn("daymark_0.1.12_x64-setup.exe", deleted, "回读为空不得发起清理删除")
+        self.assertNotIn("app-universal-release-0.1.12.apk", deleted)
+        self.assertLessEqual(deleted, {pr.LEGACY_APK_NAME},
+                             "仅允许别名刷新的删除，清理阶段零删除")
+
+    def test_cleanup_read_exception_reports_partial_without_deletes(self):
+        cfg = make_cfg(self.tmp.name)
+        stale = [("daymark_0.1.12_x64-setup.exe", 10), ("app-universal-release-0.1.12.apk", 10),
+                 (pr.LEGACY_APK_NAME, 10)]
+        t = FakeTransport(assets=stale, live=old_live_manifest(),
+                          fetch_json_seq=[old_live_manifest(),
+                                          RuntimeError("simulated read failure")])
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 2)
+        s = out.getvalue()
+        self.assertIn("部分完成", s)
+        self.assertIn("清理/回读失败", s, "读取异常走既有部分完成路径")
+        self.assertNotIn("完成。清单", s)
+        deleted = {e[1] for e in t.events if e[0] == "delete"}
+        self.assertLessEqual(deleted, {pr.LEGACY_APK_NAME}, "读取异常不得继续清理删除")
 
     # -- cleanup policy ----------------------------------------------------
     def test_cleanup_keeps_recent_versions_live_urls_and_alias(self):
