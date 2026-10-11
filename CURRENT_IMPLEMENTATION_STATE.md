@@ -2,18 +2,18 @@
 
 > **口径说明（2026-10-09 对齐）**：文首「事实基准」是唯一现行口径，**覆盖下文一切历史快照**。§1–§7 保留开发期定稿原文供追溯，其中的「当前」「仍缺」「BLOCKED」只反映当时；§8 起是按日期的史实流水。与本文冲突时，以 **文首事实基准 + [`AGENTS.md`](AGENTS.md) + §25–§26** 为准。待修 bug 见 [`docs/POST_RELEASE_BUGS.md`](docs/POST_RELEASE_BUGS.md)。
 
-## 事实基准（现行，2026-10-09 NL 时间升级后）
+## 事实基准（现行，2026-10-11 v0.2.1 发布后）
 
 - **项目**：拾序 Daymark——面向学生的课程事务应用（Windows Tauri 2 + 安卓 APK + 云端 API；本地优先、登录后云同步）。代码/文件侧 `daymark`。
-- **当前阶段**：**发布后维护更新阶段** + **自然语言记录与时间语义升级（2026-10-09，实现完成、待用户验收、未发版）**。
-- **产品/发布**：GitHub `violetsnowl/Daymark`；0.1.0 期间单 release 覆盖 + 应用内 semver 爬升（发版基线仍 **0.1.15**，本轮升级**未发版**）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
-- **门控基线（升级后）**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check`。application 测试增至 **46**（含 timeParsing 16 + captureParsing 12）；完整套件数字见 §28。
+- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0、v0.2.1 均已发布**，2026-10-11）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
+- **产品/发布**：GitHub `violetsnowl/Daymark`；**多 Release 策略**（每版本独立 Release/Tag、Tag 只建不移、`v0.1.0` 永久保留），当前版本 **0.2.1**（Tag `v0.2.1` → `c3dbf8b`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
+- **门控基线**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check` 全 0；套件 **411 passed + 2 skipped**（2 skip=真实 PG 集成用例，不算通过）。
 - **DATE/DATETIME**：Item 增加 `start_date` / `occurrence_start_date` / `occurrence_end_date` / `due_date` / `time_zone`；RawCapture 增加 `captured_tz`。互斥不变量与行为见 `docs/ADR-010-date-datetime-precision.md` 与母稿 `22_NATURAL_LANGUAGE_TIME_SPEC.md`。
-- **外部 lane**：A–F 已全部 `VERIFIED REAL`；**007 迁移尚未应用到生产库**（本轮明确禁止）。
+- **外部 lane**：A–F 已全部 `VERIFIED REAL`；**007 迁移已于 2026-10-11 应用到生产库**（核验见 §29）。
 - **数据安全红线**：Dexie 库名 `"course-manager"` 与 `course_manager_device_id` 是本机/设备持久化键，**改名工程永不得触碰**。
 - **证据分层**：PGlite/fake IndexedDB 证据与真实 PostgreSQL/Supabase 证据始终严格分开；「skipped」不算真实 PASS。
 
-**历史节点（仅作时间锚，勿当现行结论）**：功能/验收基线曾记 `1dcdf18`；2026-09-26 换机复验 97+1；RC Hardening 136+1；Final Release Gate Prep 144+1；2026-09-29 结项 217/216+1；收官交接 `3863348`（门控 304+1）。
+**历史节点（仅作时间锚，勿当现行结论）**：功能/验收基线曾记 `1dcdf18`；2026-09-26 换机复验 97+1；RC Hardening 136+1；Final Release Gate Prep 144+1；2026-09-29 结项 217/216+1；收官交接 `3863348`（门控 304+1）；i18n 窗口 316+1；NL 升级合并 `c0d4c21`（399+2）；v0.2.0 = `e3d326dc`；**v0.2.1 = `c3dbf8b`（门控 411+2）**。
 
 ## 1. 当前已实现并可运行
 
@@ -647,3 +647,15 @@ Gate 实测（2026-09-29 11:18）：`pnpm format:check` / `pnpm lint` / `pnpm ty
   7. brief/转录哈希抄错（.sig 沿用旧版值）→ 一律重算+密码学验签（minisign/ed25519，key id `4DEDF7A24E2687B1`）。
 - **环境/命令变化**：生产部署目录实为 `/opt/daymark/course-manager`（runbook 已修）；生产 PG=**17.6**（pg_dump 客户端须 ≥17，便携 PG 17.6 即用即删）；服务器 `SUPABASE_ACCESS_TOKEN`（44 字符）为无效遗留值、代码零引用（卫生项，建议清掉）。
 - **未决/风险**：PR-001（安装器被第三方接住）仍观察；PR-002（VPS 带宽）保留；真实发布路径已实跑闭环一次（v0.2.0），脚本模拟测试 30 用例≠替代真实终检；0.2.x/0.3.0 发版时注意 versionCode 递增复核（0.2.0→2000）。
+
+## 30. v0.2.1 发布：PR-007 分类 + PR-008 时间双框（2026-10-11 深夜，跨 agent 交接点）
+
+- **进度（全部完成）**：两处修复 + 回归测试 → 门控全绿（**411 passed + 2 skipped**、`cargo check` 0 警告）→ 双端构建（exe `拾序_0.2.1_x64-setup.exe` 2,597,552 B + `.sig` 436 B；APK 29,746,959 B，`versionName 0.2.1` / **`versionCode 2001`**）→ **v0.2.1 正式发布**（Tag `v0.2.1` → `c3dbf8b`，独立 Release 三资产，清单原子翻转 0.2.1，Release 正文白话版，VPS 与 GitHub 固定名别名均上传后校验）→ 终检 6 项全过 → 产物归档 `E:\Daymark-QA\0.2.1\`。
+- **PR-007 根因与修法**：`packages/application/src/captureParsing.ts` 的动作识别是**句首锚定**（`ACTION_PATTERNS[0]` 带 `^`），动词不在句首就没有正信号 → 落到「需要确认记录类型」兜底；母稿 `22_NATURAL_LANGUAGE_TIME_SPEC` §2.4 明确允许无课程、无时间的事项，§9 要求分类 _expands beyond leading verbs_。修法 = 新增**任意位置的多字动作短语**通道（`ACTION_PHRASE_PATTERNS`：办事证件 / 钱款 / 就医 / 生活杂务 / 通用行动短语），**只作 ITEM 正信号**：`clearInformation` 仍只数核心通道（课程事实语言优先）、第三方陈述（`老师`/`学校`…开头）不触发、不编造课程与时间、完全无信号仍进 UNRESOLVED；单字动词仍只认句首（`学`/`修` 也出现在 `金融学`/`选修课`）。
+- **PR-008 机制与修法**：两个框对应 ADR-010 的两个互斥精度列（`*_date` / `*_at`，Postgres `007` 有 CHECK、API/Zod 同样拒绝双写）。原实现把它们做成**两个互斥入口**、`onChange` 互相清空对方，且两框 label/placeholder 一字不差 → 读起来像「日期半 / 时间半」双联框，先选日期再选时间被重置回今天。修法（用户拍板方案 A）= **两框协作成一个值**：框1 仅选日期、框2 仅选时间（`mode="time"` 面板去掉日历只留时间轮）且**选填**；有钟点写 `*_at`、无钟点写 `*_date`，永远只写一列（数据库/同步零改动）；日期与时间**双向继承**（完全没选日期就选钟点时钉当天，且该日期显示在框1）；文案 `仅选日期` / `仅选时间（可不填）`，aria 按 开始/发生/截止 × 日期/时间 分开；附带把一行两个 `<label>` 改成 `<div>`（原结构非法，一次点击会开出两个面板）。
+- **验证**：应用层新增 6 例（分类 + 8 个时间字段 + `raw_text` 不改写 + 有/无时间两条路径 + 歧义课程信息仍要确认 + 无动作线索仍 UNRESOLVED）；web 新增 `TimeBlock.collaboration.test.tsx` 交互回归 3 例（先日期后时间 / 先时间后日期 / 未填时间=仅日期且只写一列）+ `composeTime`/`dayOf`/`clockOf` 纯函数 + `showsDateGrid`/`showsClock`；真实界面（vite 开发版）实测 Quick Capture 三条（「招商银行办卡」「办理业务」直进事项、「期末考试范围」仍弹「请确认它属于哪门课程」）与时间双框两个方向，保存回读「开始 2026年10月21日 23:14」。
+- **新坑**：
+  1. **30MB 资产上传经代理易被重置**：固定名别名上传连续 3 次 `WinError 10054` / `curl 56 Recv failure`，脚本报「部分完成」（清单已翻转、版本化资产完好不受影响）；第 4 次 curl 单发 `POST --data-binary` 一次成功（201，digest MATCH）。恢复 = 重跑脚本（幂等）或 curl 单发补别名；**客户端更新只依赖清单 + 版本化资产，别名只服务旧链接，失败不影响更新**。
+  2. **安卓构建缺环境变量直接报「Android SDK not found」**：`ANDROID_HOME` / `NDK_HOME` / `GRADLE_USER_HOME` 本机未设到用户级，配方在 `scripts/build-apk-0.1.12.ps1`（SDK `E:\devtools\android\Sdk`、NDK `26.1.10909125`、JDK 17、`GRADLE_USER_HOME=E:\devtools\gradle-home`），带上即通。
+  3. **发布脚本硬要求工作区干净**：双端产物全在 gitignore 内（`gen/android` 亦然），构建后 `git status` 应仍为空——非空先查清再发。
+- **未决**：PR-001/002/003/004/005 与 L-02/03/06 照旧；别名上传 10054 若在下次发布复发，再考虑给 `upload_asset` 加重试（本轮未改脚本，避免与本次发布混线）。
