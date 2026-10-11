@@ -51,6 +51,48 @@ const ACTION_PATTERNS = [
   /(截止|之前|前交|要交|得交|记得|别忘了|需要完成|待办)/u,
 ];
 
+/**
+ * Multi-character action phrases recognised **anywhere** in the text.
+ *
+ * Root cause of the 「招商银行办卡 → 需要确认记录类型」 defect: every core
+ * channel above is position-sensitive — the verb list only fires sentence-
+ * initially, so a `名词短语 + 动宾谓语` structure (`招商` + `银行办卡`) never
+ * produced an action signal and fell through to the type-ambiguity fallback,
+ * even though 拾序 allows items with no course and no time (spec §2.4;
+ * spec §9: "classification expands beyond leading verbs").
+ *
+ * This channel is deliberately conservative so it can only *add* an ITEM
+ * signal, never remove a question the user should still answer:
+ * - multi-character only: single-character verbs (`学` / `修` / `看`) also sit
+ *   inside nouns (`金融学` / `选修课` / `看法`);
+ * - it never outranks course-information language — `clearInformation` keeps
+ *   counting the core channels only, so 「老师说重点整理在第三章」 stays a
+ *   course fact needing a course, not a life to-do;
+ * - it never fires on third-party statements (`老师` / `学校` …) and never
+ *   invents a course or a time;
+ * - with no signal at all the record still goes UNRESOLVED.
+ */
+const ACTION_PHRASE_PATTERNS: RegExp[] = [
+  // 办事 / 证件 / 行政
+  /办理|办卡|办证|办手续|办事|经办|代办|补办|换领|申领|签注|年审|过户|销户/u,
+  // 钱款 / 财务
+  /取钱|取款|取现|存款|存钱|转账|汇款|缴费|交费|报销|退款|退费|退票|还款|还贷/u,
+  // 就医 / 健康
+  /挂号|就诊|问诊|看病|买药|拿药|体检|打疫苗|接种/u,
+  // 生活杂务
+  /取快递|取件|寄件|邮寄|寄快递|退货|退订|搬家|退房|排队/u,
+  // 通用行动短语（spec §9 点名的 submit/prepare/read/contact/join 变体）
+  /提交|准备|阅读|联系|参加|报名|预约|预订|订票|复习|整理|制作|发送|确认|打印|下载|上传|购买|询问|打听|核对|回复|跟进/u,
+];
+
+/** Third-party statements are not the user's own to-do on this signal alone. */
+const THIRD_PARTY_STATEMENT =
+  /^(老师|教师|教授|讲师|辅导员|班主任|学校|学院|教务处)/u;
+
+function hasActionPhrase(text: string): boolean {
+  return ACTION_PHRASE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
 /** Clear schedule/event expressions → ITEM without inventing extra semantics. */
 const EVENT_PATTERNS = [
   /(课堂展示|课堂报告|课堂演讲|展示|演讲|汇报|答辩|面试|讲座|宣讲|会议|开会|研讨会|工作坊)/u,
@@ -278,10 +320,16 @@ export function preprocessCapture(
 
   const clearEvent =
     countEventHits(title) >= 1 || countEventHits(normalized) >= 1;
+  // Anywhere action phrase (see ACTION_PHRASE_PATTERNS): a clear to-do stays
+  // an ITEM whether or not a time phrase was parsed, and whether or not the
+  // verb happens to open the sentence. Third-party statements never qualify.
+  const clearActionPhrase =
+    hasActionPhrase(normalized) && !THIRD_PARTY_STATEMENT.test(normalized);
   const clearAction =
     input.source === "COURSE_ITEM" ||
     countActionHits(title) >= 1 ||
-    countActionHits(normalized) >= 2;
+    countActionHits(normalized) >= 2 ||
+    clearActionPhrase;
   const clearInformation =
     input.source === "COURSE_INFORMATION" ||
     (input.source !== "COURSE_ITEM" &&

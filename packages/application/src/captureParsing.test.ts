@@ -346,3 +346,139 @@ it("keeps grammatically essential date expressions intact", () => {
   expect(result.title).toContain("2026年10月21日");
   expect(rawText).toBe("2026年10月21日的作业");
 });
+
+const NO_TIME_FIELDS = {
+  start_at: null,
+  start_date: null,
+  occurrence_start_at: null,
+  occurrence_start_date: null,
+  occurrence_end_at: null,
+  occurrence_end_date: null,
+  due_at: null,
+  due_date: null,
+};
+
+it("classifies 招商银行办卡 as a course-less, time-less ITEM", () => {
+  const rawText = "招商银行办卡";
+  const parsed = preprocessCapture({ ...base, rawText });
+  // Type is decisive → no confirmation question, no AI step.
+  expect(parsed.classification).toBe("ITEM");
+  expect(parsed.unresolvedReason).toBeNull();
+  expect(parsed.splitCandidates).toEqual([]);
+  // Title kept verbatim; no course and no invented time.
+  expect(parsed.title).toBe("招商银行办卡");
+  expect(parsed.resolvedCourseId).toBeNull();
+  expect(parsed.courseMatches).toEqual([]);
+  expect(parsed.times).toEqual([]);
+  expect(parsed.unresolvedTimes).toEqual([]);
+  expect(parsed.timeFields).toEqual(NO_TIME_FIELDS);
+  // RawCapture.raw_text is never rewritten.
+  expect(rawText).toBe("招商银行办卡");
+});
+
+it("classifies the same to-do with and without a time phrase identically", () => {
+  // Classification must not depend on whether a time field could be filled.
+  const dateOnly = preprocessCapture({
+    ...base,
+    rawText: "招商银行办卡 10.12截止",
+    semesterYear: 2026,
+  });
+  expect(dateOnly.classification).toBe("ITEM");
+  expect(dateOnly.unresolvedReason).toBeNull();
+  expect(dateOnly.title).toBe("招商银行办卡");
+  expect(dateOnly.resolvedCourseId).toBeNull();
+  expect(dateOnly.timeFields).toEqual({
+    ...NO_TIME_FIELDS,
+    due_date: "2026-10-12",
+  });
+
+  const relative = preprocessCapture({
+    ...base,
+    rawText: "明天招商银行办卡",
+  });
+  expect(relative.classification).toBe("ITEM");
+  expect(relative.unresolvedReason).toBeNull();
+  expect(relative.title).toBe("招商银行办卡");
+  expect(relative.resolvedCourseId).toBeNull();
+  expect(relative.timeFields).toEqual({
+    ...NO_TIME_FIELDS,
+    occurrence_start_date: "2026-10-10",
+  });
+  // Still one column, never both precisions at once (ADR-010).
+  expect(relative.timeFields.occurrence_start_at).toBeNull();
+});
+
+it("classifies common life to-dos by their actual action phrase", () => {
+  for (const rawText of [
+    "办理业务",
+    "证件办理",
+    "取快递",
+    "挂号",
+    "转账",
+    "去银行排队取号",
+  ]) {
+    const parsed = preprocessCapture({ ...base, rawText });
+    expect(`${rawText} → ${parsed.classification}`).toBe(`${rawText} → ITEM`);
+    expect(parsed.title).toBe(rawText);
+    expect(parsed.resolvedCourseId).toBeNull();
+    expect(parsed.timeFields).toEqual(NO_TIME_FIELDS);
+    expect(parsed.unresolvedReason).toBeNull();
+  }
+});
+
+it("keeps the existing clear-item positives as ITEM", () => {
+  for (const rawText of ["找学姐要环境经济学笔记", "买东西", "预约"]) {
+    const parsed = preprocessCapture({ ...base, rawText });
+    expect(parsed.classification).toBe("ITEM");
+    expect(parsed.title).toBe(rawText);
+    expect(parsed.timeFields).toEqual(NO_TIME_FIELDS);
+  }
+});
+
+it("still asks for genuinely ambiguous course information", () => {
+  // A course fact with no course in scope keeps asking — an ordinary word
+  // inside it must not turn it into a life to-do.
+  const noCourse = preprocessCapture({
+    ...base,
+    rawText: "期末考试范围",
+  });
+  expect(noCourse.classification).toBe("UNRESOLVED");
+  expect(noCourse.unresolvedReason).toBe("需要确认所属课程");
+
+  const inCourse = preprocessCapture({
+    ...base,
+    rawText: "期末考试范围",
+    courses: [course("c1", "环境经济学")],
+    contextCourseId: "c1",
+  });
+  expect(inCourse.classification).toBe("COURSE_INFORMATION");
+  expect(inCourse.resolvedCourseId).toBe("c1");
+
+  // Action phrase present (整理) but course-fact language still wins.
+  const teacherFact = preprocessCapture({
+    ...base,
+    rawText: "老师说重点整理在第三章",
+    courses: [course("c1", "环境经济学")],
+    contextCourseId: "c1",
+  });
+  expect(teacherFact.classification).toBe("COURSE_INFORMATION");
+  expect(teacherFact.resolvedCourseId).toBe("c1");
+});
+
+it("keeps input with no action cue and no course fact unresolved", () => {
+  const parsed = preprocessCapture({ ...base, rawText: "图书馆三楼" });
+  expect(parsed.classification).toBe("UNRESOLVED");
+  expect(parsed.unresolvedReason).toBe("需要确认记录类型");
+  expect(parsed.timeFields).toEqual(NO_TIME_FIELDS);
+
+  // Third-party statement: an action phrase alone never makes it the user's
+  // own to-do.
+  const statement = preprocessCapture({
+    ...base,
+    rawText: "老师准备了重点",
+    courses: [course("c1", "环境经济学")],
+    contextCourseId: "c1",
+  });
+  expect(statement.classification).toBe("UNRESOLVED");
+  expect(statement.unresolvedReason).toBe("需要确认记录类型");
+});

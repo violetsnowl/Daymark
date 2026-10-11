@@ -3,6 +3,9 @@ import { expect, it } from "vitest";
 import { I18nProvider } from "./i18n/index.js";
 import {
   TimeBlock,
+  clockOf,
+  composeTime,
+  dayOf,
   formatOccurrence,
   formatStamp,
   timeSummaries,
@@ -66,6 +69,45 @@ it("summarises whichever semantics are set, in 开始/发生/截止 order", () =
     "9月25日 19:00–20:30 发生",
     "截止于 9月24日 23:59",
   ]);
+});
+
+it("reads both boxes back out of the single stored value", () => {
+  // DATE column wins when set; otherwise the day inside the DATETIME.
+  expect(dayOf("", "")).toBe("");
+  expect(dayOf("2026-10-21", "")).toBe("2026-10-21");
+  expect(dayOf("", "2026-10-21T15:00")).toBe("2026-10-21");
+  expect(clockOf("")).toBe("");
+  expect(clockOf("2026-10-21T15:00")).toBe("15:00");
+});
+
+it("composes the two boxes into exactly one ADR-010 column", () => {
+  const today = "2026-10-05";
+  // Untouched optional clock box → DATE stays DATE.
+  expect(composeTime("2026-10-21", "", today)).toEqual({
+    date: "2026-10-21",
+    at: "",
+  });
+  // Clock with the chosen day → DATETIME, day never reset to today.
+  expect(composeTime("2026-10-21", "15:00", today)).toEqual({
+    date: "",
+    at: "2026-10-21T15:00",
+  });
+  // Clock before any day → today pinned so the pair can commit at all.
+  expect(composeTime("", "15:00", today)).toEqual({
+    date: "",
+    at: "2026-10-05T15:00",
+  });
+  // Neither half → nothing stored, nothing invented.
+  expect(composeTime("", "", today)).toEqual({ date: "", at: "" });
+  // Never both columns at once.
+  for (const [day, clock] of [
+    ["2026-10-21", ""],
+    ["2026-10-21", "15:00"],
+    ["", "15:00"],
+  ] as const) {
+    const { date, at } = composeTime(day, clock, today);
+    expect(date === "" || at === "").toBe(true);
+  }
 });
 
 it("renders 时间未定 when nothing is set, without leaking column names", () => {

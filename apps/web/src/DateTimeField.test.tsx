@@ -3,6 +3,8 @@ import { expect, it } from "vitest";
 import {
   DateTimeField,
   commitValue,
+  showsClock,
+  showsDateGrid,
   dayLabel,
   displayValue,
   draftFrom,
@@ -83,6 +85,18 @@ it("splits stored values back into panel state", () => {
     time: "15:42",
     cursor: { year: 2026, month: 9 },
   });
+});
+
+it("splits the two panel halves by mode", () => {
+  // The clock box pulls up wheels alone — a day grid next to it would invite
+  // picking a date in the box that only owns the clock.
+  expect(showsDateGrid("time")).toBe(false);
+  expect(showsDateGrid("date")).toBe(true);
+  expect(showsDateGrid("datetime")).toBe(true);
+  // The date box never offers a clock.
+  expect(showsClock("date")).toBe(false);
+  expect(showsClock("datetime")).toBe(true);
+  expect(showsClock("time")).toBe(true);
 });
 
 it("builds Monday-first month grids padded to whole weeks", () => {

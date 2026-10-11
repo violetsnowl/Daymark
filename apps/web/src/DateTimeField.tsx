@@ -152,6 +152,19 @@ export function commitValue(
   return day ? `${day}T${time}` : "";
 }
 
+/**
+ * A clock-only panel is wheels alone — showing a day grid next to them
+ * invites the reader to pick a date in the box that only owns the clock.
+ */
+export function showsDateGrid(mode: DateTimeMode): boolean {
+  return mode !== "time";
+}
+
+/** Wheels carry the clock in `datetime` and `time` panels. */
+export function showsClock(mode: DateTimeMode): boolean {
+  return mode !== "date";
+}
+
 function shiftCursor(cursor: Draft["cursor"], delta: number): Draft["cursor"] {
   const next = new Date(cursor.year, cursor.month + delta, 1);
   return { year: next.getFullYear(), month: next.getMonth() };
@@ -222,6 +235,13 @@ export function DateTimeField({
         ?.focus();
       return;
     }
+    if (!showsDateGrid(mode)) {
+      // Clock-only: land on the hour wheel, the panel's first control.
+      (
+        panel.querySelector<HTMLElement>(".datetime-wheel-viewport") ?? panel
+      ).focus();
+      return;
+    }
     const day = focusDayRef.current;
     const preferred = day
       ? panel.querySelector<HTMLButtonElement>(`button[data-iso="${day}"]`)
@@ -229,7 +249,7 @@ export function DateTimeField({
           `button[data-iso="${isoDay(new Date())}"]`,
         );
     (preferred ?? panel).focus();
-  }, [open]);
+  }, [open, mode]);
 
   // The panel is portalled to <body>: every candidate host (the detail
   // panel, the capture sheet, conflict dialogs) scrolls, and an absolutely
@@ -290,7 +310,11 @@ export function DateTimeField({
    */
   function touchTime(nextTime: string) {
     setDraft((current) =>
-      withTimeChange(current, nextTime, isoDay(new Date())),
+      // A clock-only panel never pins a day: it has no day to pin and the
+      // caller owns which day the clock pairs with.
+      mode === "time"
+        ? { ...current, time: nextTime }
+        : withTimeChange(current, nextTime, isoDay(new Date())),
     );
   }
 
@@ -341,7 +365,7 @@ export function DateTimeField({
 
   const todayIso = isoDay(new Date());
   const cells = monthCells(draft.cursor.year, draft.cursor.month);
-  const showTimes = mode !== "date";
+  const showTimes = showsClock(mode);
 
   return (
     <div className="datetime-wrap" ref={wrapRef}>
@@ -380,102 +404,108 @@ export function DateTimeField({
                 }
               }}
             >
-              <div className="datetime-nav">
-                <button
-                  type="button"
-                  aria-label={t("common.prevMonth")}
-                  onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      cursor: shiftCursor(current.cursor, -1),
-                    }))
-                  }
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M15 6l-6 6 6 6" />
-                  </svg>
-                </button>
-                <strong>
-                  {t("common.yearMonth", {
-                    year: draft.cursor.year,
-                    month: monthLabel(draft.cursor.month),
-                  })}
-                </strong>
-                <button
-                  type="button"
-                  aria-label={t("common.nextMonth")}
-                  onClick={() =>
-                    setDraft((current) => ({
-                      ...current,
-                      cursor: shiftCursor(current.cursor, 1),
-                    }))
-                  }
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    width="14"
-                    height="14"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2.2"
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    aria-hidden="true"
-                  >
-                    <path d="M9 6l6 6-6 6" />
-                  </svg>
-                </button>
-                <button
-                  type="button"
-                  className="datetime-today"
-                  onClick={() => {
-                    const now = new Date();
-                    setDraft((current) => ({
-                      ...current,
-                      day: isoDay(now),
-                      cursor: {
-                        year: now.getFullYear(),
-                        month: now.getMonth(),
-                      },
-                    }));
-                  }}
-                >
-                  {t("common.today")}
-                </button>
-              </div>
-              <div className="datetime-weekdays" aria-hidden="true">
-                {weekdayLabelsSundayFirst(locale, "short").map((name) => (
-                  <span key={name}>{name}</span>
-                ))}
-              </div>
-              <div className="datetime-days" onKeyDown={onGridKeyDown}>
-                {cells.map((cell, index) => (
-                  <button
-                    type="button"
-                    key={cell.iso}
-                    data-iso={cell.iso}
-                    data-index={index}
-                    data-outside={cell.outside || undefined}
-                    data-today={cell.iso === todayIso || undefined}
-                    aria-label={dayLabel(cell.iso, locale)}
-                    aria-pressed={cell.iso === draft.day}
-                    aria-current={cell.iso === todayIso ? "date" : undefined}
-                    onClick={() => pickDay(cell.iso)}
-                  >
-                    {Number(cell.iso.slice(8))}
-                  </button>
-                ))}
-              </div>
+              {showsDateGrid(mode) ? (
+                <>
+                  <div className="datetime-nav">
+                    <button
+                      type="button"
+                      aria-label={t("common.prevMonth")}
+                      onClick={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          cursor: shiftCursor(current.cursor, -1),
+                        }))
+                      }
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M15 6l-6 6 6 6" />
+                      </svg>
+                    </button>
+                    <strong>
+                      {t("common.yearMonth", {
+                        year: draft.cursor.year,
+                        month: monthLabel(draft.cursor.month),
+                      })}
+                    </strong>
+                    <button
+                      type="button"
+                      aria-label={t("common.nextMonth")}
+                      onClick={() =>
+                        setDraft((current) => ({
+                          ...current,
+                          cursor: shiftCursor(current.cursor, 1),
+                        }))
+                      }
+                    >
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="14"
+                        height="14"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M9 6l6 6-6 6" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      className="datetime-today"
+                      onClick={() => {
+                        const now = new Date();
+                        setDraft((current) => ({
+                          ...current,
+                          day: isoDay(now),
+                          cursor: {
+                            year: now.getFullYear(),
+                            month: now.getMonth(),
+                          },
+                        }));
+                      }}
+                    >
+                      {t("common.today")}
+                    </button>
+                  </div>
+                  <div className="datetime-weekdays" aria-hidden="true">
+                    {weekdayLabelsSundayFirst(locale, "short").map((name) => (
+                      <span key={name}>{name}</span>
+                    ))}
+                  </div>
+                  <div className="datetime-days" onKeyDown={onGridKeyDown}>
+                    {cells.map((cell, index) => (
+                      <button
+                        type="button"
+                        key={cell.iso}
+                        data-iso={cell.iso}
+                        data-index={index}
+                        data-outside={cell.outside || undefined}
+                        data-today={cell.iso === todayIso || undefined}
+                        aria-label={dayLabel(cell.iso, locale)}
+                        aria-pressed={cell.iso === draft.day}
+                        aria-current={
+                          cell.iso === todayIso ? "date" : undefined
+                        }
+                        onClick={() => pickDay(cell.iso)}
+                      >
+                        {Number(cell.iso.slice(8))}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
               {showTimes ? (
                 <div className="datetime-times">
                   <TimeWheel
@@ -522,7 +552,7 @@ export function DateTimeField({
                         const now = new Date();
                         setDraft((current) => ({
                           ...current,
-                          day: isoDay(now),
+                          day: mode === "time" ? current.day : isoDay(now),
                           time: `${pad(now.getHours())}:${pad(now.getMinutes())}`,
                           cursor: {
                             year: now.getFullYear(),

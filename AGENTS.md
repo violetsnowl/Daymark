@@ -21,7 +21,7 @@
 
 ## 硬性约定（违反=事故）
 
-1. **门控全 0 才提交**：`pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`（基线 **399 passed + 2 skipped**；2 skip=真实 PostgreSQL 集成用例，**skip 不算通过**，需便携 PG17.6 一次性库单独验证）+ `src-tauri` 下 `cargo check` 0 警告。
+1. **门控全 0 才提交**：`pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`（基线 **411 passed + 2 skipped**；2 skip=真实 PostgreSQL 集成用例，**skip 不算通过**，需便携 PG17.6 一次性库单独验证）+ `src-tauri` 下 `cargo check` 0 警告。
 2. **每轮改动 commit + push**，中文提交信息；提交前密钥正则自检为 0，`.env` 永不入库；更新签名私钥（`E:\devtools\tauri-keys\daymark.key`）绝不入库。
 3. **永不向真实 Supabase（`xaqmzjhvewkrpnqaunwd`）写演示/种子数据**；验收先查真实数据库，"skipped" 不算通过。
 4. **不关闭**任务栏 "CourseManager API (watchdog)" 窗口。
