@@ -25,7 +25,7 @@
 | 项           | 值                                                                                           |
 | ------------ | -------------------------------------------------------------------------------------------- |
 | 服务器       | 椰子云香港 `206.187.209.142`（Ubuntu 24.04），SSH `root` + 密钥 `~/.ssh/id_ed25519_daymark2` |
-| API 部署目录 | `/opt/daymark/daymark`（git 仓库）                                                           |
+| API 部署目录 | `/opt/daymark/course-manager`（git 仓库）                                                           |
 | API 服务     | systemd `cm-api`，Caddy 反代 `127.0.0.1:3100`，对外 `https://api.daymark.top`                |
 | 健康检查     | `https://api.daymark.top/api/v1/health`                                                      |
 | 更新目录     | `/opt/daymark/update/`（Caddy `handle_path /update/*` + `ACAO *`）                           |
@@ -61,7 +61,7 @@ SSH 到服务器后，用服务器上的连接串执行只读查询（示例以 
 在服务器部署目录（连接串取自 `.env`）：
 
 ```
-cd /opt/daymark/daymark && git fetch && git checkout <本次授权的 main SHA>
+cd /opt/daymark/course-manager && git fetch && git checkout <本次授权的 main SHA>
 pnpm install --frozen-lockfile
 DATABASE_URL="<服务器 .env 中的生产连接串>" pnpm db:migrate
 ```
@@ -86,7 +86,7 @@ occurrence 日期先后）；1 个部分索引 `items_owner_due_date`。
 ## 5. 部署 API
 
 ```
-cd /opt/daymark/daymark
+cd /opt/daymark/course-manager
 pnpm --filter @daymark/api build
 systemctl restart cm-api
 systemctl is-active cm-api        # 期望 active
