@@ -342,14 +342,33 @@ class RealTransport:
                 h.update(chunk)
         return h.hexdigest()
 
-    def delete_asset(self, asset_id: int) -> None:
+    def delete_asset(self, asset_id: int, name: str = "") -> None:
+        """Delete a release asset. Confirmed ONLY on a successful HTTP status
+        (204/200); 404 = provably already gone → idempotent success. Curl
+        failure, timeout, unexpected status or an unconfirmable result all
+        raise with the asset id/name and diagnostics — never silently pass."""
+        label = f"asset id={asset_id}" + (f" name={name}" if name else "")
         # NOTE: asset deletion answers 301 → urllib would not replay DELETE
         # through the redirect; curl -L does, and this is the proven path.
-        subprocess.run(
-            ["curl", "-sSL", "-o", os.devnull, "-X", "DELETE",
-             "-H", f"Authorization: Bearer {self.token}",
-             f"https://api.github.com/repos/violetsnowl/Daymark/releases/assets/{asset_id}"],
-            check=False, capture_output=True, timeout=60)
+        try:
+            result = subprocess.run(
+                ["curl", "-sSL", "-o", os.devnull, "-w", "%{http_code}",
+                 "-X", "DELETE",
+                 "-H", f"Authorization: Bearer {self.token}",
+                 f"https://api.github.com/repos/violetsnowl/Daymark/releases/assets/{asset_id}"],
+                capture_output=True, timeout=60)
+        except Exception as exc:  # noqa: BLE001 — timeout / spawn failure
+            raise RuntimeError(f"删除失败 {label}: curl 未正常完成（{exc}）") from exc
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"删除失败 {label}: curl exit={result.returncode} "
+                f"stderr={result.stderr.decode(errors='replace')[:200]}")
+        code = result.stdout.decode(errors="replace").strip()[-3:]
+        if code == "404":
+            return  # provably absent already — idempotent success
+        if code not in ("200", "204"):
+            raise RuntimeError(
+                f"删除失败 {label}: HTTP {code or '?'}（非预期状态，删除结果无法确认）")
 
     # -- Server (SFTP) --------------------------------------------------
     def _sftp(self):
@@ -513,7 +532,7 @@ def publish(t, cfg) -> None:
                 die(f"线上引用的版本化资产 {name} {why}——中止并报告，不得覆盖")
             # Unreferenced failed-staging leftover: safe repeatable rule =
             # delete then re-upload.
-            t.delete_asset(a["id"])
+            t.delete_asset(a["id"], a["name"])
         if not skip_upload:
             uploaded = t.upload_asset(name, path)
             if uploaded and uploaded != want:
@@ -578,7 +597,12 @@ def publish(t, cfg) -> None:
     try:
         t.server_atomic_put(cfg.manifest_path, f"{SERVER_UPDATE_DIR}/latest.json")
     except Exception as exc:  # noqa: BLE001 — ambiguous failure: READ first
-        live_after = t.fetch_json(MANIFEST_URL)
+        try:
+            live_after = t.fetch_json(MANIFEST_URL)
+        except Exception as read_exc:  # noqa: BLE001 — state unknown, fail closed
+            die(f"清单翻转失败（翻转异常: {exc}）且线上清单回读也失败（回读异常: {read_exc}）——"
+                f"清单是否生效无法确认【状态不明】。已停止 tag/正文/别名/清理等全部后续步骤，"
+                f"不回滚、不盲目重试。请先人工读取 {MANIFEST_URL} 确认实际状态，再决定后续动作")
         if (live_after is not None
                 and live_after.get("version") == cfg.manifest["version"]
                 and live_after.get("platforms") == cfg.manifest["platforms"]):
@@ -613,7 +637,7 @@ def publish(t, cfg) -> None:
     try:
         rel2 = t.get_release()
         for a in [x for x in rel2["assets"] if x["name"] == LEGACY_APK_NAME]:
-            t.delete_asset(a["id"])
+            t.delete_asset(a["id"], a["name"])
         uploaded = t.upload_asset(LEGACY_APK_NAME, cfg.apk)
         if uploaded and uploaded != cfg.apk_size:
             raise RuntimeError(f"GitHub 别名大小不符: {uploaded} != {cfg.apk_size}")
@@ -639,10 +663,19 @@ def publish(t, cfg) -> None:
         rel3 = t.get_release()
         live3 = t.fetch_json(MANIFEST_URL) or live
         live3_urls = {e["url"] for e in live3["platforms"].values()}
-        for a in select_cleanup(rel3["assets"], live3_urls, cfg.keep_versions):
-            t.delete_asset(a["id"])
+        planned = select_cleanup(rel3["assets"], live3_urls, cfg.keep_versions)
+        deleted_names = []
+        for a in planned:
+            t.delete_asset(a["id"], a["name"])
+            deleted_names.append(a["name"])
             print(f"[6/6] 已清理旧版本资产: {a['name']}")
-        names = sorted(a["name"] for a in t.get_release()["assets"])
+        # Read-back: every planned deletion must actually be GONE.
+        remaining = {x["name"] for x in t.get_release()["assets"]}
+        still_there = [n for n in deleted_names if n in remaining]
+        if still_there:
+            post_errors.append(
+                f"清理回读发现目标仍存在: {', '.join(still_there)}（删除未生效，需人工处理）")
+        names = sorted(remaining)
         print(f"[6/6] 回读资产: {names}")
     except (Exception, SystemExit) as exc:  # noqa: BLE001
         post_errors.append(f"清理/回读失败: {exc}")

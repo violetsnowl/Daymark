@@ -20,6 +20,7 @@ import sys
 import tempfile
 import types
 import unittest
+from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import publish_release as pr  # noqa: E402
@@ -38,7 +39,8 @@ class FakeTransport:
                  asset_digests=None, download_shas=None, server_files=None,
                  fail_on=None, corrupt_server_puts=(),
                  flip_actually_happens=False, lose_live_after_flip_fail=False,
-                 digest_omitted=(), download_errors=(), server_read_errors=()):
+                 digest_omitted=(), download_errors=(), server_read_errors=(),
+                 undeletable=(), fetch_json_fails_after_flip=False):
         self.events = []
         self.assets = []
         self.asset_shas = {}
@@ -64,6 +66,9 @@ class FakeTransport:
         self.digest_omitted = set(digest_omitted)      # GitHub provides no digest
         self.download_errors = set(download_errors)    # download-hash unavailable
         self.server_read_errors = set(server_read_errors)  # read → unconfirmable
+        self.undeletable = set(undeletable)            # delete "succeeds" but asset stays
+        self.fetch_json_fails_after_flip = fetch_json_fails_after_flip
+        self._fetch_broken = False
 
     def _record(self, ev):
         if self.fail_on is not None:
@@ -99,9 +104,11 @@ class FakeTransport:
         name = url.rsplit("/", 1)[-1]
         return self.download_shas.get(url) or self.asset_shas.get(name) or "unknown-content"
 
-    def delete_asset(self, asset_id):
+    def delete_asset(self, asset_id, name=""):
         victim = next(a for a in self.assets if a["id"] == asset_id)
         self._record(("delete", victim["name"]))
+        if victim["name"] in self.undeletable:
+            return  # request "succeeds" but the asset survives
         self.assets = [a for a in self.assets if a["id"] != asset_id]
 
     def server_put(self, local, remote):
@@ -123,12 +130,16 @@ class FakeTransport:
         if self.fail_on == ("FLIP", remote):
             if self.lose_live_after_flip_fail:
                 self.live = None
+            if self.fetch_json_fails_after_flip:
+                self._fetch_broken = True  # follow-up read also fails
             raise RuntimeError("simulated posix_rename failure")
         self.events.append(("FLIP", remote))
         if not self.flip_actually_happens:
             self.live = json.load(open(local, encoding="utf-8"))
 
     def fetch_json(self, url):
+        if self._fetch_broken:
+            raise RuntimeError("simulated manifest read failure")
         self._record(("fetch_json",))
         return self.live
 
@@ -571,6 +582,90 @@ class PublishFlowTest(unittest.TestCase):
         self.assertIn("正文", out.getvalue(), "必须点名失败步骤")
         self.assertNotIn("完成。清单", out.getvalue())
         self.assertEqual(t.live["version"], cfg.manifest["version"], "已生效清单不回滚")
+
+    # -- final acceptance round: delete confirmation & flip read-back -----
+    def test_delete_asset_rejects_http_failure_status(self):
+        t = object.__new__(pr.RealTransport)  # no network; only delete_asset used
+        t.token = "tok"
+        with mock.patch.object(pr.subprocess, "run",
+                               return_value=types.SimpleNamespace(
+                                   returncode=0, stdout=b"500", stderr=b"")):
+            with self.assertRaises(RuntimeError) as cm:
+                t.delete_asset(42, "some-asset.apk")
+        msg = str(cm.exception)
+        self.assertIn("42", msg, "异常须含资产 ID")
+        self.assertIn("some-asset.apk", msg, "异常须含资产名")
+        self.assertIn("500", msg, "异常须含 HTTP 诊断")
+        with mock.patch.object(pr.subprocess, "run",
+                               return_value=types.SimpleNamespace(
+                                   returncode=7, stdout=b"", stderr=b"boom")):
+            with self.assertRaises(RuntimeError) as cm:
+                t.delete_asset(43, "other.apk")
+        self.assertIn("exit=7", str(cm.exception), "curl 失败不得当成功")
+
+    def test_delete_asset_404_is_idempotent_success(self):
+        t = object.__new__(pr.RealTransport)
+        t.token = "tok"
+        for code in (b"404", b"204", b"200"):
+            with mock.patch.object(pr.subprocess, "run",
+                                   return_value=types.SimpleNamespace(
+                                       returncode=0, stdout=code, stderr=b"")):
+                t.delete_asset(1, "gone.apk")  # must not raise
+
+    def test_cleanup_delete_not_effective_reports_partial(self):
+        cfg = make_cfg(self.tmp.name)
+        stale = [("daymark_0.1.12_x64-setup.exe", 10), ("app-universal-release-0.1.12.apk", 10),
+                 ("daymark_0.1.15_x64-setup.exe", 10), ("app-universal-release-0.1.15.apk", 10),
+                 (pr.LEGACY_APK_NAME, 10)]
+        t = FakeTransport(assets=stale, live=old_live_manifest(),
+                          undeletable={"daymark_0.1.12_x64-setup.exe"})
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 2, "删除未生效必须走 partial_release")
+        s = out.getvalue()
+        self.assertIn("部分完成", s)
+        self.assertIn("仍存在", s, "回读必须点名仍存在的资产")
+        self.assertIn("daymark_0.1.12_x64-setup.exe", s)
+        self.assertNotIn("完成。清单", s, "绝不能继续输出正常完成报告")
+
+    def test_cleanup_delete_confirmed_by_readback_still_completes(self):
+        cfg = make_cfg(self.tmp.name)
+        stale = [("daymark_0.1.12_x64-setup.exe", 10), ("app-universal-release-0.1.12.apk", 10),
+                 ("daymark_0.1.15_x64-setup.exe", 10), ("app-universal-release-0.1.15.apk", 10),
+                 (pr.LEGACY_APK_NAME, 10)]
+        t = FakeTransport(assets=stale, live=old_live_manifest())
+        out, _ = run_publish(t, cfg)
+        deleted = [e[1] for e in t.events if e[0] == "delete"]
+        self.assertIn("daymark_0.1.12_x64-setup.exe", deleted)
+        self.assertIn("app-universal-release-0.1.12.apk", deleted)
+        self.assertNotIn("daymark_0.1.15_x64-setup.exe", deleted, "近 2 版保留策略")
+        self.assertIn("完成。清单", out, "删除全部生效且回读确认后正常完成")
+
+    def test_flip_failure_and_readback_failure_reports_unknown_state(self):
+        cfg = make_cfg(self.tmp.name)
+        t = FakeTransport(assets=[(pr.LEGACY_APK_NAME, 10)], live=old_live_manifest(),
+                          fail_on=("FLIP", f"{pr.SERVER_UPDATE_DIR}/latest.json"),
+                          fetch_json_fails_after_flip=True)
+        out, err = io.StringIO(), io.StringIO()
+        with self.assertRaises(SystemExit) as cm, contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            pr.publish(t, cfg)
+        self.assertEqual(cm.exception.code, 1)
+        msg = err.getvalue()
+        self.assertIn("状态不明", msg)
+        self.assertIn("人工", msg, "必须要求先人工确认线上清单")
+        self.assertIn("翻转异常", msg, "必须给出翻转异常诊断")
+        self.assertIn("回读异常", msg, "必须给出回读异常诊断")
+        self.assertNotIn("旧清单、完好可读", msg, "不得把状态不明误报为旧清单仍有效")
+        ev = [e[0] for e in t.events]
+        self.assertNotIn("move_tag", ev, "状态不明不得继续 tag")
+        self.assertNotIn("set_body", ev, "状态不明不得继续正文")
+        self.assertNotIn("delete", ev, "状态不明不得继续清理")
+        self.assertNotIn(("upload", pr.LEGACY_APK_NAME), t.events, "状态不明不得继续别名")
+        self.assertNotIn(("server_put", f"{pr.SERVER_UPDATE_DIR}/{pr.LEGACY_APK_NAME}"),
+                         t.events, "状态不明不得继续别名")
 
     # -- cleanup policy ----------------------------------------------------
     def test_cleanup_keeps_recent_versions_live_urls_and_alias(self):
