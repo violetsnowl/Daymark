@@ -9,13 +9,15 @@
 
 ## 1. 发版流程（一条命令 + 两个前置）
 
-1. **改版本**：`src-tauri/tauri.conf.json` 的 `version` **必须递增**（与线上清单相等不触发更新；0.1.0 期间 GitHub tag/release 固定为 `v0.1.0` 不动）。
+1. **改版本**：`src-tauri/tauri.conf.json` 的 `version` **必须递增**（与线上清单相等不触发更新）。
+   **发布策略（当前，2026-10-11 起）**：每个正式版本使用**独立的新 Release/Tag**（`v0.2.0`、`v0.3.0`…），Tag 只创建一次、**永不移动**（无 `git tag -f`/`git push -f`）。
+   **历史记录**：`v0.1.0` 时期（2026-10-07～10）采用单 Release 反复覆盖、tag 固定 `v0.1.0` 的旧策略——该 Release/Tag 及其资产作为历史**完整保留**，任何新发布流程不得修改或删除。
 2. **双端构建**（签名环境变量必须带，否则无 `.sig`）：
    - exe：`pnpm exec tauri build` → `src-tauri/target/release/bundle/nsis/拾序_<ver>_x64-setup.exe` + `.sig`
    - apk：补丁版 `E:\devtools\tauri-cli-src\tauri-cli-2.12.1\target\release\cargo-tauri.exe android build --ci --apk`（四坑见 [`ANDROID_APK_BUILD.md`](ANDROID_APK_BUILD.md)）
 3. **一键发布**：`uv run --with paramiko python scripts/publish_release.py --notes "<更新卡文案（白话）>" --body "<Release 正文（白话）>"`
-   = 验签（缺 `.sig` 自动补签）→ **版本化资产暂存 + 内容校验**（SHA-256 确认一致才复用，线上引用资产绝不覆盖）→ 逐 URL 大小校验（无法确认即停）→ **清单原子翻转放最后**（SFTP posix_rename 单翻转点，失败关闭、旧清单保持可读）→ `git push -f origin v0.1.0`（刷 source code）→ 更新正文 → **刷新固定名别名**（上传后校验；失败=报「部分完成」exit 2 + 恢复路径，不报成功）→ 清理过期版本化资产（保留近 2 版，永不删线上引用/别名）→ 回读。**翻转前任何失败 = 线上零变化，直接重跑即可。**
-4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`，保留最近两个版本（PR-006 加固后的已批准资产策略，2026-10-11）。
+   = 验签（缺 `.sig` 自动补签）→ **确保 Tag/Release**（`v<版本>` 不存在则创建且永不移动；已存在但指向别的提交=失败关闭）→ **版本化资产暂存 + 内容校验**（SHA-256 确认一致才复用，线上引用资产绝不覆盖）→ 逐 URL 大小校验（无法确认即停）→ **清单原子翻转放最后**（SFTP posix_rename 单翻转点，失败关闭、旧清单保持可读；翻转异常先回读三分类）→ 更新正文 → **刷新固定名别名**（上传后校验；失败=报「部分完成」exit 2 + 恢复路径，不报成功）→ **回读核对**（预期资产齐备；未预期资产只报告不自动删除——多 Release 模式永不清理历史版本资产，旧版可用性优先）。**翻转前任何失败 = 线上零变化，直接重跑即可。**
+4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`。**保留策略（真实行为）**：各版本资产随其**专属 Release 长期保留**，历史 Release（含 `v0.1.0`）永不自动清理、永不修改——旧版下载与回退可用性优先。
 
 ## 2. 关键位置
 

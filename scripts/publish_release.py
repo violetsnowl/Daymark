@@ -1,63 +1,54 @@
-"""Daymark one-shot release publisher (single-release phase: v0.1.0).
+"""Daymark release publisher — per-version Release/Tag mode (v0.2.0 era).
 
-User's release policy (2026-10-08; asset policy finalized 2026-10-11):
-- While v0.1.0 is the CURRENT release, every update OVERWRITES that one
-  release: assets are replaced and the tag is force-moved to HEAD so the
-  auto-generated "Source code (zip/tar.gz)" archives refresh too.
-- The app's internal semver climbs (0.1.1, 0.1.2, …) — that is what the
-  updater compares; the GitHub release page stays v0.1.0.
-- After 0.1.0 is final, later updates become NEW tagged releases.
-- APPROVED asset policy: versioned EXE/APK assets + fixed-name
-  app-universal-release.apk compatibility alias; newest two versions of
-  versioned assets retained; cleanup never touches live-referenced assets.
+Release policy (2026-10-11, Stage 6A):
+- Every official version gets its OWN GitHub Release and Tag: v0.2.0, v0.3.0…
+  Tags are created once and NEVER moved (no `git tag -f`, no `git push -f`).
+- v0.1.0 is a historical release: it is never modified, overwritten, deleted
+  or re-tagged by this script. Historical releases are structurally out of
+  scope — the script only ever lists/uploads/deletes within the CURRENT
+  version's release.
+- Asset naming is unchanged:
+    Windows:  daymark_<version>_x64-setup.exe   (versioned, immutable)
+    Android:  app-universal-release-<version>.apk (versioned, immutable)
+    Alias:    app-universal-release.apk (fixed name, refreshed AFTER the
+              manifest flip, for old links and the client's offline fallback)
 
-PR-006 hardening (2026-10-11): the live update manifest must NEVER reference
-an asset that is not already uploaded and downloadable. The old flow wrote
-the manifest first and replaced the fixed-name GitHub APK afterwards, leaving
-a window where clients pulled a manifest pointing at the wrong package. The
-hardened flow:
-
-  1. STAGE   upload new GitHub assets under VERSIONED immutable names
-             (daymark_<v>_x64-setup.exe, app-universal-release-<v>.apk) and
-             the same versioned files to the VPS. Nothing user-visible
-             changes: the old manifest keeps referencing untouched old assets.
-             Versioned assets are CONTENT-IMMUTABLE: a pre-existing same-name
-             asset is only reused when its SHA-256 is confirmed identical to
-             the local build (GitHub digest or download-hash fallback). A
-             live-referenced asset whose content differs is never overwritten
-             — the run aborts and reports. Unreferenced failed-staging
+Safety hardening (kept from the single-release era, not degraded):
+  0. ENSURE  verify worktree/version/target commit and existing tag/release
+             state. Tag absent → create (never force). Tag present but
+             pointing elsewhere → FAIL CLOSED. Release absent → create at the
+             verified tag. Release present with matching tag → idempotent
+             retry, continue with content checks.
+  1. STAGE   upload assets under VERSIONED immutable names and the same
+             versioned files to the VPS. A pre-existing same-name asset is
+             only reused when its SHA-256 is CONFIRMED identical (GitHub
+             digest, else download-hash; a missing digest is never a pass).
+             Live-referenced assets whose content differs/unconfirmable are
+             never overwritten — abort and report. Unreferenced failed-staging
              leftovers are deleted and re-uploaded (safe, repeatable). Server
-             versioned files follow the same rule.
+             versioned files obey the same rule and are read back after upload.
   2. VERIFY  every URL the NEW manifest references must answer 200 with a
-             CONFIRMED expected size BEFORE the flip (Content-Length, or a
-             reliable alternative such as GitHub asset metadata / SFTP stat;
-             an unconfirmable size ABORTS — missing Content-Length is never
-             treated as a pass). The OLD manifest's URLs must still answer
-             200 as well. Any failure aborts with nothing flipped.
+             CONFIRMED expected size BEFORE the flip; the OLD manifest's URLs
+             must still answer 200. Unconfirmable size ABORTS.
   3. FLIP    atomically replace /opt/daymark/update/latest.json via SFTP
-             posix_rename (put tmp + rename = one flip point). FAIL-CLOSED:
-             there is NO non-atomic delete+rename fallback; if the rename
-             errors, the old manifest must remain readable. On ambiguous
-             network errors the actual live manifest is READ first to
-             determine what really happened — never blindly deleted/retried.
-  4. TAG/BODY force-move v0.1.0 and patch the release body (as before).
-  5. ALIASES refresh the legacy fixed names AFTER the flip:
-             GitHub app-universal-release.apk (old links / README) and the
-             VPS mirror app-universal-release.apk (client offline fallback,
-             see apps/web/src/updateService.ts mirrorUrl()). Pre-flip these
-             names still serve the OLD manifest's package, so they must only
-             be overwritten once no live manifest references them. Each alias
-             is VERIFIED after upload (size/hash). Any alias failure yields a
-             PARTIAL-RELEASE report (exit 2) with diagnostics and a safe
-             recovery path — never a silent success.
-  6. CLEANUP delete stale versioned assets, keeping the newest KEEP_VERSIONS
-             versions. Never deletes anything referenced by the live manifest,
-             never deletes legacy alias names.
+             posix_rename (one flip point). FAIL-CLOSED: no non-atomic
+             fallback. On ambiguous errors the live manifest is READ first and
+             classified strictly: equals new → continue as flipped; equals the
+             saved pre-flip manifest → old manifest proven intact; anything
+             else (None / exception / third content) → UNKNOWN, stop.
+  4. BODY    patch this release's body (post-flip failures = PARTIAL).
+  5. ALIASES refresh the legacy fixed names AFTER the flip, VERIFIED
+             (size + SHA-256). Failures yield PARTIAL (exit 2) with
+             diagnostics and a safe recovery path — never silent success.
+  6. READ-BACK verify the release's expected assets are present. Multi-release
+             mode does NOT auto-delete anything across versions: historical
+             version assets are never touched (old-version availability wins);
+             unexpected extras are reported, not deleted.
 
-Failure recovery: any failure before step 3 leaves the live manifest and every
-asset it references fully intact — just re-run. Steps 1 and 5 are idempotent
-(reuse requires confirmed identical content; unreferenced leftovers are
-replaced).
+Failure recovery: any failure before the flip leaves the live manifest and
+every asset it references fully intact — just re-run. A failed attempt may
+leave an empty/partial v<version> release + tag; the re-run continues
+idempotently (identical content is reused, mismatches abort).
 
 Prerequisites: `tauri build` already ran with
 TAURI_SIGNING_PRIVATE_KEY=E:\\devtools\\tauri-keys\\daymark.key (so .sig
@@ -90,7 +81,8 @@ APK = os.path.join(ROOT, "src-tauri/gen/android/app/build/outputs/apk/universal/
 KEY = r"E:\devtools\tauri-keys\daymark.key"
 BASE = "https://api.daymark.top/update"
 MANIFEST_URL = f"{BASE}/latest.json"
-TAG = "v0.1.0"
+REPO_API = "https://api.github.com/repos/violetsnowl/Daymark"
+REPO_DL = "https://github.com/violetsnowl/Daymark/releases/download"
 SSH_HOST, SSH_USER = "206.187.209.142", "root"
 SSH_KEY = os.path.expanduser(r"~\.ssh\id_ed25519_daymark2")
 SERVER_UPDATE_DIR = "/opt/daymark/update"
@@ -98,7 +90,10 @@ SERVER_UPDATE_DIR = "/opt/daymark/update"
 # offline fallback (updateService.ts mirrorUrl()). Never versioned, never
 # deleted by cleanup.
 LEGACY_APK_NAME = "app-universal-release.apk"
-KEEP_VERSIONS = 2
+
+
+def tag_for(version: str) -> str:
+    return f"v{version}"
 
 
 def die(msg: str) -> None:
@@ -113,10 +108,10 @@ def partial_release(errors: list[str]) -> None:
     for e in errors:
         print(f"   - {e}")
     print("   清单状态：已生效，不会因收尾失败回滚（已确认生效的清单不得盲目回滚）。")
-    print("   诊断：固定名别名仅服务旧链接与客户端离线回退，清理仅影响过期版本化资产；")
+    print("   诊断：固定名别名仅服务旧链接与客户端离线回退，读回核对仅影响报告完整性；")
     print("        清单一致性不受影响，客户端更新按新清单工作。")
     print("   安全恢复路径：直接重跑本脚本（幂等：已确认内容一致的资产会复用，")
-    print("        别名与清理会重做）；或按 docs/HOT_UPDATE_RELEASE.md 手动补别名。")
+    print("        别名与读回会重做）；或按 docs/HOT_UPDATE_RELEASE.md 手动补别名。")
     raise SystemExit(2)
 
 
@@ -181,9 +176,9 @@ def build_manifest(version: str, exe_sig: str, apk_sig: str,
                    notes: str, pub_date: str | None = None) -> dict:
     exe_name, apk_name = asset_names(version)
     pub_date = pub_date or datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    # The android URL is the versioned GitHub asset — immutable, so the live
-    # manifest can never point at a package that gets overwritten in place.
-    apk_url = f"https://github.com/violetsnowl/Daymark/releases/download/{TAG}/{apk_name}"
+    # The android URL is the versioned asset on THIS version's release —
+    # immutable, and never pointing at an older release's assets.
+    apk_url = f"{REPO_DL}/{tag_for(version)}/{apk_name}"
     return {
         "version": version,
         "notes": notes,
@@ -213,47 +208,15 @@ def manifest_targets(manifest: dict, exe_size: int, apk_size: int) -> list[tuple
     return list(seen.items())
 
 
-def parse_asset_version(name: str) -> str | None:
-    """'daymark_0.1.16_x64-setup.exe' / 'app-universal-release-0.1.16.apk'
-    → '0.1.16'; legacy alias names → None (never managed by cleanup)."""
-    m = re.match(r"^daymark_(\d+\.\d+\.\d+)_x64-setup\.exe$", name)
-    if m:
-        return m.group(1)
-    m = re.match(r"^app-universal-release-(\d+\.\d+\.\d+)\.apk$", name)
-    return m.group(1) if m else None
+def gh_asset_url(name: str, tag: str) -> str:
+    return f"{REPO_DL}/{tag}/{name}"
 
 
-def _version_key(v: str) -> tuple[int, ...]:
-    return tuple(int(p) for p in v.split("."))
-
-
-def select_cleanup(assets: list[dict], live_urls: set[str],
-                   keep_versions: int = KEEP_VERSIONS) -> list[dict]:
-    """Assets safe to delete: versioned names only, older than the newest
-    `keep_versions`, and never referenced by the live manifest."""
-    versions = sorted({v for v in (parse_asset_version(a["name"]) for a in assets) if v},
-                      key=_version_key)
-    keep = set(versions[-keep_versions:])
-    out = []
-    for a in assets:
-        v = parse_asset_version(a["name"])
-        if v is None or v in keep:
-            continue
-        if a.get("browser_download_url") in live_urls:
-            continue
-        out.append(a)
-    return out
-
-
-def gh_asset_url(name: str) -> str:
-    return f"https://github.com/violetsnowl/Daymark/releases/download/{TAG}/{name}"
-
-
-def remote_sha256(t, name: str, url: str) -> str | None:
+def remote_sha256(t, tag: str, name: str, url: str) -> str | None:
     """Best CONFIRMED SHA-256 of remote asset content: GitHub digest when
     present, otherwise download-and-hash. None = unconfirmable (a missing
     digest is never treated as a pass)."""
-    d = t.asset_digest(name)
+    d = t.asset_digest(tag, name)
     if d:
         return d
     try:
@@ -262,10 +225,10 @@ def remote_sha256(t, name: str, url: str) -> str | None:
         return None
 
 
-def content_matches(t, name: str, url: str, local_sha: str) -> bool | None:
+def content_matches(t, tag: str, name: str, url: str, local_sha: str) -> bool | None:
     """True/False when the remote content is provably identical/different to
     the local build; None when it cannot be confirmed either way."""
-    got = remote_sha256(t, name, url)
+    got = remote_sha256(t, tag, name, url)
     return None if got is None else got == local_sha
 
 
@@ -275,7 +238,7 @@ def content_matches(t, name: str, url: str, local_sha: str) -> bool | None:
 
 
 class RealTransport:
-    """Production transport: GitHub REST + SFTP + git tag + curl PATCH."""
+    """Production transport: GitHub REST + git + SFTP + curl PATCH."""
 
     def __init__(self) -> None:
         self.token = github_token()
@@ -308,26 +271,51 @@ class RealTransport:
                 return code, exc.read().decode(errors="replace")[:200]
             raise
 
-    def get_release(self) -> dict:
-        status, rel = self.api(f"https://api.github.com/repos/violetsnowl/Daymark/releases/tags/{TAG}")
-        if status != 200:
-            die(f"读取 release 失败: {status} {rel}")
-        return rel
+    def get_release(self, tag: str) -> dict | None:
+        """Release for `tag`, or None when it provably does not exist (404)."""
+        status, rel = self.api(f"{REPO_API}/releases/tags/{tag}")
+        if status == 200 and isinstance(rel, dict):
+            return rel
+        if status == 404:
+            return None
+        die(f"读取 release {tag} 失败: {status} {rel}")
 
-    def upload_asset(self, name: str, path: str) -> int:
-        rel = self.get_release()
-        upload_url = rel["upload_url"].split("{")[0]
+    def create_release(self, tag: str, name: str) -> dict:
+        status, resp = self.api(f"{REPO_API}/releases",
+                                data=json.dumps({"tag_name": tag, "name": name,
+                                                 "draft": False, "prerelease": False}).encode(),
+                                method="POST", content_type="application/json")
+        if status not in (200, 201) or not isinstance(resp, dict):
+            die(f"创建 Release {tag} 失败: {status} {resp}")
+        return resp
+
+    def get_tag_sha(self, tag: str) -> str | None:
+        out = subprocess.run(["git", "ls-remote", "origin", f"refs/tags/{tag}"],
+                             cwd=ROOT, capture_output=True, timeout=60).stdout.decode(errors="replace")
+        line = out.strip().splitlines()
+        return line[0].split()[0] if line else None
+
+    def create_tag(self, tag: str) -> None:
+        """Create the tag at HEAD and push it. NEVER force — an existing tag
+        is a hard stop, not something to move."""
+        subprocess.run(["git", "tag", tag, "HEAD"], cwd=ROOT, check=True, capture_output=True)
+        subprocess.run(["git", "push", "origin", tag], cwd=ROOT, check=True,
+                       capture_output=True, timeout=120, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
+
+    def upload_asset(self, tag: str, release: dict, name: str, path: str) -> int:
+        upload_url = release["upload_url"].split("{")[0]
         # Chinese product names must be percent-encoded for the URL.
         status, resp = self.api(f"{upload_url}?name={self._urllib_parse.quote(name)}",
                                 data=open(path, "rb").read(),
                                 method="POST", content_type="application/octet-stream")
         if status not in (200, 201) or not isinstance(resp, dict):
-            die(f"上传 {name} 失败: {status} {resp}")
+            die(f"上传 {tag}/{name} 失败: {status} {resp}")
         return int(resp.get("size") or 0)
 
-    def asset_digest(self, name: str) -> str | None:
-        """GitHub-reported sha256 digest for an asset name (when provided)."""
-        for a in self.get_release()["assets"]:
+    def asset_digest(self, tag: str, name: str) -> str | None:
+        """GitHub-reported sha256 digest for an asset of this release."""
+        rel = self.get_release(tag)
+        for a in (rel or {}).get("assets", []):
             if a["name"] == name:
                 d = a.get("digest") or ""
                 return d.split(":", 1)[1] if d.startswith("sha256:") else None
@@ -342,12 +330,12 @@ class RealTransport:
                 h.update(chunk)
         return h.hexdigest()
 
-    def delete_asset(self, asset_id: int, name: str = "") -> None:
+    def delete_asset(self, tag: str, asset_id: int, name: str = "") -> None:
         """Delete a release asset. Confirmed ONLY on a successful HTTP status
         (204/200); 404 = provably already gone → idempotent success. Curl
         failure, timeout, unexpected status or an unconfirmable result all
         raise with the asset id/name and diagnostics — never silently pass."""
-        label = f"asset id={asset_id}" + (f" name={name}" if name else "")
+        label = f"{tag} asset id={asset_id}" + (f" name={name}" if name else "")
         # NOTE: asset deletion answers 301 → urllib would not replay DELETE
         # through the redirect; curl -L does, and this is the proven path.
         try:
@@ -355,7 +343,7 @@ class RealTransport:
                 ["curl", "-sSL", "-o", os.devnull, "-w", "%{http_code}",
                  "-X", "DELETE",
                  "-H", f"Authorization: Bearer {self.token}",
-                 f"https://api.github.com/repos/violetsnowl/Daymark/releases/assets/{asset_id}"],
+                 f"{REPO_API}/releases/assets/{asset_id}"],
                 capture_output=True, timeout=60)
         except Exception as exc:  # noqa: BLE001 — timeout / spawn failure
             raise RuntimeError(f"删除失败 {label}: curl 未正常完成（{exc}）") from exc
@@ -389,8 +377,8 @@ class RealTransport:
             client.close()
 
     def server_file_sha256(self, remote: str) -> str:
-        """SHA-256 of the server file. Raises FileNotFoundError ONLY when the
-        file is provably absent; every other I/O failure propagates as an
+        """SHA-256 of the server file. Raises FileNotFoundError when the file
+        is provably absent; every other I/O failure propagates as an
         UNCONFIRMABLE state — callers must fail closed, never guess."""
         client, sftp = self._sftp()
         try:
@@ -450,12 +438,14 @@ class RealTransport:
             return (code or 0), -1
 
     def fetch_size(self, url: str) -> int | None:
-        """Relable size when Content-Length is missing: GitHub asset metadata
+        """Reliable size when Content-Length is missing: GitHub asset metadata
         (authoritative) or SFTP stat for our own server files. None = the
         size cannot be confirmed."""
         if "github.com" in url:
             name = self._urllib_parse.unquote(url.rsplit("/", 1)[-1])
-            for a in self.get_release()["assets"]:
+            tag = self._urllib_parse.unquote(url.split("/download/", 1)[1].split("/", 1)[0])
+            rel = self.get_release(tag)
+            for a in (rel or {}).get("assets", []):
                 if a["name"] == name:
                     return int(a.get("size") or 0) or None
             return None
@@ -472,11 +462,6 @@ class RealTransport:
                 return None
         return None
 
-    def move_tag(self) -> None:
-        subprocess.run(["git", "tag", "-f", TAG, "HEAD"], cwd=ROOT, check=True, capture_output=True)
-        subprocess.run(["git", "push", "-f", "origin", TAG], cwd=ROOT, check=True,
-                       capture_output=True, timeout=120, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
-
     def set_body(self, release_id: int, body: str) -> None:
         # PATCH answers 307 here and urllib refuses to replay bodies through
         # redirects — curl -L follows and keeps the method.
@@ -489,7 +474,7 @@ class RealTransport:
              "-H", f"Authorization: Bearer {self.token}",
              "-H", "Accept: application/vnd.github+json",
              "--data-binary", f"@{body_file}",
-             f"https://api.github.com/repos/violetsnowl/Daymark/releases/{release_id}"],
+             f"{REPO_API}/releases/{release_id}"],
             capture_output=True, timeout=120,
         ).stdout.decode().strip()
         if code not in ("200", "201"):
@@ -502,14 +487,30 @@ class RealTransport:
 
 
 def publish(t, cfg) -> None:
-    """cfg: namespace with exe, apk, exe_name, apk_name, exe_size, apk_size,
-    manifest, manifest_path, body, keep_versions."""
+    """cfg: namespace with version, exe, apk, exe_name, apk_name, exe_size,
+    apk_size, manifest, manifest_path, body, head_sha."""
+    version = cfg.version
+    tag = tag_for(version)
     exe_name, apk_name = cfg.exe_name, cfg.apk_name
     apk_sha = sha256_file(cfg.apk)
     post_errors: list[str] = []
 
+    # --- Phase 0: ENSURE tag + release (create once, never move) ----------
+    tag_sha = t.get_tag_sha(tag)
+    if tag_sha is None:
+        t.create_tag(tag)
+        print(f"[0/6] Tag {tag} 已创建并推送（指向 {cfg.head_sha[:10]}，永不移动）")
+    elif tag_sha != cfg.head_sha:
+        die(f"Tag {tag} 已存在且指向 {tag_sha}，与目标提交 {cfg.head_sha} 不符——"
+            f"失败关闭；不移动、不覆盖既有 Tag")
+    rel = t.get_release(tag)
+    if rel is None:
+        rel = t.create_release(tag, f"Daymark {version}")
+        print(f"[0/6] Release {tag} 已创建（独立新 Release，不动历史 Release）")
+    else:
+        print(f"[0/6] Release {tag} 已存在且 Tag 一致——按幂等重试继续")
+
     # --- Phase 1: STAGE new assets (old manifest + old assets untouched) ---
-    rel = t.get_release()
     live = t.fetch_json(MANIFEST_URL)
     if live is None:
         die("线上 latest.json 不可读——在任何变更前停止")
@@ -520,7 +521,7 @@ def publish(t, cfg) -> None:
         stale = [a for a in rel["assets"] if a["name"] == name]
         skip_upload = False
         for a in stale:
-            same = content_matches(t, name, a.get("browser_download_url", ""), local_sha)
+            same = content_matches(t, tag, name, a.get("browser_download_url", ""), local_sha)
             if same is True:
                 # Content CONFIRMED identical → reuse as the rerun product.
                 skip_upload = True
@@ -532,14 +533,14 @@ def publish(t, cfg) -> None:
                 die(f"线上引用的版本化资产 {name} {why}——中止并报告，不得覆盖")
             # Unreferenced failed-staging leftover: safe repeatable rule =
             # delete then re-upload.
-            t.delete_asset(a["id"], a["name"])
+            t.delete_asset(tag, a["id"], a["name"])
         if not skip_upload:
-            uploaded = t.upload_asset(name, path)
+            uploaded = t.upload_asset(tag, rel, name, path)
             if uploaded and uploaded != want:
                 die(f"上传大小不符 {name}: {uploaded} != {want}")
             # Pre-flip we need CONFIRMED content evidence for every upload:
             # GitHub digest, or download-hash when the digest is missing.
-            got = remote_sha256(t, name, gh_asset_url(name))
+            got = remote_sha256(t, tag, name, gh_asset_url(name, tag))
             if got is None:
                 die(f"上传后无法确认 {name} 内容（digest 缺失且下载哈希不可得）——禁止翻转")
             if got != local_sha:
@@ -601,7 +602,7 @@ def publish(t, cfg) -> None:
             live_after = t.fetch_json(MANIFEST_URL)
         except Exception as read_exc:  # noqa: BLE001 — state unknown, fail closed
             die(f"清单翻转失败（翻转异常: {exc}）且线上清单回读也失败（回读异常: {read_exc}）——"
-                f"清单是否生效无法确认【状态不明】。已停止 tag/正文/别名/清理等全部后续步骤，"
+                f"清单是否生效无法确认【状态不明】。已停止正文/别名/读回等全部后续步骤，"
                 f"不回滚、不盲目重试。请先人工读取 {MANIFEST_URL} 确认实际状态，再决定后续动作")
         # Strict three-way classification — "old intact" must be PROVEN by
         # equality with the pre-flip manifest, not assumed from "not new":
@@ -616,43 +617,37 @@ def publish(t, cfg) -> None:
             got = ("None（未取到清单）" if live_after is None else
                    f"版本 {live_after.get('version')!r} 的第三方内容（与新旧清单均不一致）")
             die(f"清单翻转失败（翻转异常: {exc}）后回读结果无法归类：{got}——【状态不明】。"
-                f"不得视为旧清单完好；已停止 tag/正文/别名/清理等全部后续步骤，"
+                f"不得视为旧清单完好；已停止正文/别名/读回等全部后续步骤，"
                 f"不回滚、勿盲目重试。请先人工读取 {MANIFEST_URL} 核实实际状态，再决定后续动作")
-    print(f"[2/6] 线上清单已原子翻转 → {cfg.manifest['version']}")
+    print(f"[2/6] 线上清单已原子翻转 → {version}")
 
-    # --- Phase 4: tag + body (post-flip: failures = PARTIAL, never hidden) --
-    try:
-        t.move_tag()
-        print(f"[3/6] tag {TAG} 已强推至 HEAD（Source code 压缩包随之刷新）")
-    except (Exception, SystemExit) as exc:  # noqa: BLE001
-        post_errors.append(f"tag {TAG} 移动失败: {exc}（source code 压缩包未刷新；"
-                           f"重跑本脚本可补，或手动 git tag -f {TAG} HEAD && git push -f origin {TAG}）")
+    # --- Phase 4: body (post-flip failures = PARTIAL, never hidden) -------
     if cfg.body:
         try:
             t.set_body(rel["id"], cfg.body)
-            print("[4/6] Release 正文已更新（白话版）")
+            print("[3/6] Release 正文已更新（白话版）")
         except (Exception, SystemExit) as exc:  # noqa: BLE001
             post_errors.append(f"Release 正文更新失败: {exc}（重跑本脚本或手动 PATCH 正文）")
     else:
-        print("[4/6] Release 正文未变（--body 留空）")
+        print("[3/6] Release 正文未变（--body 留空）")
 
     # --- Phase 5: legacy alias refresh (AFTER flip, verified) -------------
     # GitHub fixed-name alias (old links/README) + VPS fixed-name mirror
     # (client fallback mirrorUrl()). Pre-flip these names serve the OLD
     # manifest's package, so only now is it safe to overwrite them.
     try:
-        rel2 = t.get_release()
+        rel2 = t.get_release(tag) or rel
         for a in [x for x in rel2["assets"] if x["name"] == LEGACY_APK_NAME]:
-            t.delete_asset(a["id"], a["name"])
-        uploaded = t.upload_asset(LEGACY_APK_NAME, cfg.apk)
+            t.delete_asset(tag, a["id"], a["name"])
+        uploaded = t.upload_asset(tag, rel2, LEGACY_APK_NAME, cfg.apk)
         if uploaded and uploaded != cfg.apk_size:
             raise RuntimeError(f"GitHub 别名大小不符: {uploaded} != {cfg.apk_size}")
-        got = remote_sha256(t, LEGACY_APK_NAME, gh_asset_url(LEGACY_APK_NAME))
+        got = remote_sha256(t, tag, LEGACY_APK_NAME, gh_asset_url(LEGACY_APK_NAME, tag))
         if got is None:
             raise RuntimeError("GitHub 别名上传后无法确认内容（digest 缺失且下载哈希不可得）")
         if got != apk_sha:
             raise RuntimeError(f"GitHub 别名上传后内容校验不符（{got} != {apk_sha}）")
-        print(f"[5/6] GitHub 固定名别名已刷新并校验（{LEGACY_APK_NAME}）")
+        print(f"[4/6] GitHub 固定名别名已刷新并校验（{LEGACY_APK_NAME}）")
     except (Exception, SystemExit) as exc:  # noqa: BLE001 — reported at the end
         post_errors.append(f"GitHub 别名 {LEGACY_APK_NAME} 刷新失败: {exc}")
     try:
@@ -660,42 +655,31 @@ def publish(t, cfg) -> None:
         d = t.server_file_sha256(f"{SERVER_UPDATE_DIR}/{LEGACY_APK_NAME}")
         if d != apk_sha:
             raise RuntimeError(f"VPS 别名内容校验不符: {d} != {apk_sha}")
-        print(f"[5/6] VPS 固定名别名已刷新并校验（{LEGACY_APK_NAME}）")
+        print(f"[4/6] VPS 固定名别名已刷新并校验（{LEGACY_APK_NAME}）")
     except (Exception, SystemExit) as exc:  # noqa: BLE001
         post_errors.append(f"VPS 别名 {LEGACY_APK_NAME} 刷新失败: {exc}")
 
-    # --- Phase 6: cleanup (never live-referenced, never aliases) ----------
+    # --- Phase 6: read-back verification (NO cross-release deletion) ------
+    # Multi-release mode: historical releases/versions are never listed or
+    # modified here. Unexpected extras are reported, not deleted — old-version
+    # availability wins over tidiness.
     try:
-        rel3 = t.get_release()
-        live3 = t.fetch_json(MANIFEST_URL)
-        if live3 is None:
-            # Never substitute the pre-flip manifest for an unreadable live
-            # one — cleanup would then compute deletions against stale refs.
-            post_errors.append(
-                "清理未执行：当前线上清单读取为空（拒绝以翻转前旧清单代替）——"
-                "清单已生效但清理未执行；重跑本脚本可补做清理")
-        else:
-            live3_urls = {e["url"] for e in live3["platforms"].values()}
-            planned = select_cleanup(rel3["assets"], live3_urls, cfg.keep_versions)
-            deleted_names = []
-            for a in planned:
-                t.delete_asset(a["id"], a["name"])
-                deleted_names.append(a["name"])
-                print(f"[6/6] 已清理旧版本资产: {a['name']}")
-            # Read-back: every planned deletion must actually be GONE.
-            remaining = {x["name"] for x in t.get_release()["assets"]}
-            still_there = [n for n in deleted_names if n in remaining]
-            if still_there:
-                post_errors.append(
-                    f"清理回读发现目标仍存在: {', '.join(still_there)}（删除未生效，需人工处理）")
-            names = sorted(remaining)
-            print(f"[6/6] 回读资产: {names}")
+        rel3 = t.get_release(tag) or rel
+        names = sorted(a["name"] for a in rel3["assets"])
+        expected = sorted([exe_name, apk_name, LEGACY_APK_NAME])
+        missing = [n for n in expected if n not in names]
+        if missing:
+            post_errors.append(f"读回核对缺失预期资产: {', '.join(missing)}")
+        extras = [n for n in names if n not in expected]
+        if extras:
+            print(f"[5/6] WARN 当前 Release 存在未预期资产（不自动删除，人工确认）: {', '.join(extras)}")
+        print(f"[5/6] 回读资产: {names}")
     except (Exception, SystemExit) as exc:  # noqa: BLE001
-        post_errors.append(f"清理/回读失败: {exc}")
+        post_errors.append(f"读回核对失败: {exc}")
 
     if post_errors:
         partial_release(post_errors)  # exit 2 — never report plain success
-    print(f"完成。清单: {MANIFEST_URL}  版本 {cfg.manifest['version']}")
+    print(f"完成。清单: {MANIFEST_URL}  版本 {version}  Release {tag}")
 
 
 def main() -> int:
@@ -707,6 +691,13 @@ def main() -> int:
     for path in (EXE, APK):
         if not os.path.exists(path):
             die(f"产物缺失（先带签名环境构建）: {path}")
+    # Preflight: worktree clean + target commit + version source of truth.
+    status = subprocess.run(["git", "status", "--porcelain"], cwd=ROOT,
+                            capture_output=True, timeout=60).stdout.decode().strip()
+    if status:
+        die(f"工作区不干净，拒绝发布：\n{status[:500]}")
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT,
+                          capture_output=True, timeout=60).stdout.decode().strip()
     conf = json.load(open(os.path.join(ROOT, "src-tauri/tauri.conf.json"), encoding="utf-8"))
     version = conf["version"]
     exe_sig, apk_sig = sign_file(EXE), sign_file(APK)
@@ -720,7 +711,7 @@ def main() -> int:
         exe_size=os.path.getsize(EXE), apk_size=os.path.getsize(APK),
         manifest=manifest,
         manifest_path=os.path.join(os.environ.get("TMPDIR", "."), "latest.json"),
-        body=args.body, keep_versions=KEEP_VERSIONS,
+        body=args.body, head_sha=head,
     )
     publish(RealTransport(), cfg)
     return 0
