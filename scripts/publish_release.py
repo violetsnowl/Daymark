@@ -70,6 +70,7 @@ import hashlib
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -349,7 +350,55 @@ class RealTransport:
             if proc.returncode == 0 and code in ("200", "201"):
                 return want
             time.sleep(3 * attempt)
-        die(f"上传 {tag}/{name} 失败（3 次重试后）: {last}")
+        # 本地上行 ~6MB 处必被重置（2026-10-12 实测 6/6 次，限速/关 Expect/
+        # 绕代理都无效）→ 用服务器中转：香港 VPS 到 GitHub 的路径干净。
+        print(f"[relay] 本地上传 {name} 连续失败（{last}），改走服务器中转")
+        return self.upload_via_server(url, path, name)
+
+    def upload_via_server(self, url: str, path: str, name: str) -> int:
+        """Relay one asset through the VPS (SFTP up → curl on the server).
+
+        Used when the local uplink keeps resetting mid-upload. The auth
+        header lives on the server only for the duration of the call and is
+        removed in `finally`; the caller still verifies the GitHub digest
+        afterwards, so a relayed upload gets no extra trust.
+        """
+        want = os.path.getsize(path)
+        suffix = os.urandom(4).hex()
+        remote_bin = f"/tmp/daymark-up-{suffix}.bin"
+        remote_hdr = f"/tmp/daymark-up-{suffix}.hdr"
+        client = self._paramiko.SSHClient()
+        client.set_missing_host_key_policy(self._paramiko.AutoAddPolicy())
+        client.connect(SSH_HOST, username=SSH_USER, key_filename=SSH_KEY,
+                       timeout=12, banner_timeout=12, auth_timeout=12,
+                       look_for_keys=False, allow_agent=False)
+        code, err = "?", ""
+        try:
+            sftp = client.open_sftp()
+            try:
+                sftp.put(path, remote_bin)
+                with sftp.open(remote_hdr, "w") as fh:
+                    fh.write(f"Authorization: Bearer {self.token}\n")
+            finally:
+                sftp.close()
+            cmd = (f"chmod 600 {remote_hdr} && "
+                   f"curl -sS --max-time 900 -H @{remote_hdr} "
+                   f"-H 'Content-Type: application/octet-stream' -o /dev/null "
+                   f"-w '%{{http_code}}' -X POST --data-binary @{remote_bin} "
+                   f"{shlex.quote(url)}")
+            _stdin, stdout, stderr = client.exec_command(cmd, timeout=960)
+            code = stdout.read().decode(errors="replace").strip()[-3:]
+            err = stderr.read().decode(errors="replace").strip()[:200]
+        finally:
+            try:
+                _i, out, _e = client.exec_command(
+                    f"rm -f {remote_bin} {remote_hdr}", timeout=60)
+                out.read()
+            finally:
+                client.close()
+        if code in ("200", "201"):
+            return want
+        die(f"服务器中转上传 {name} 失败: HTTP {code} {err}")
 
     def asset_digest(self, tag: str, name: str) -> str | None:
         """GitHub-reported sha256 digest for an asset of this release."""
