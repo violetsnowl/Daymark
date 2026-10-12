@@ -15,6 +15,7 @@
 - Cloudflare：Workers 项目 `daymark-app` ← GitHub `violetsnowl/Daymark`（Workers Builds 导入）。
   - Build command：`VITE_API_BASE_URL=https://api.daymark.top pnpm build`
   - Deploy command：`npx wrangler deploy`
+  - **Build variables and secrets（Settings → Build）**：`VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`（值取自根 `.env`；缺失则线上账号层降级——仅本机、账户面板无登录口；2026-10-12 首构遗漏后补配）。
 - 域名：`app.daymark.top` 绑定为该 Worker 的自定义域名。**切换前先删除**占位 A 记录（192.0.2.1）与 `app-to-download` 跳转规则——Redirect Rules 在 Worker 之前执行，规则在就永远 302。
 - Supabase：Authentication → URL Configuration → Redirect URLs 增加 `https://app.daymark.top` 与 `https://app.daymark.top/**`（登录 / 魔法链接回跳；appOrigin() = `window.location.origin`）。
 
@@ -24,6 +25,7 @@
 - 新增根级 `wrangler.jsonc`：静态资产部署配置，不参与任何现有构建（wrangler 之外的工具不读取它）。
 - Cloudflare Workers 项目 `daymark-app` 自本仓库首构并部署成功（2026-10-12，workers.dev 预览 `https://daymark-app.a161858970.workers.dev`）。
 - 2026-10-12：`app.daymark.top` 由「→ 下载页 302」改绑为网页版本体（`daymark-app`）；官网下载页「进入网页版」就此接通。
+- 2026-10-12（晚）：线上构建缺 `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY`（首构只给了 `VITE_API_BASE_URL`）→ 线上账号层降级为「仅本机」、账户面板无登录口。修法 = CF 项目 Settings → Build → Build variables and secrets 补两条（值自根 `.env`），保存后由下一次构建生效。
 
 ## 验收清单（部署后逐项标记）
 
