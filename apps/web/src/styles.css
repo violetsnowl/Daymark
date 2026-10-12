@@ -553,30 +553,45 @@ select:focus-visible {
   padding: 14px 0;
   border-bottom: 1px solid var(--line);
 }
+/* 等宽栅格 + 固定分组，取代原先内容宽度决定大小的 flex 折行：
+   桌面 3 列 = 星期/开始/结束 · 起始周/结束周/地点 · 阶段+按钮；
+   手机 2 列（同一结构，只减列数）。每个框等宽、行行对齐。 */
 .schedule-form {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: end;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  align-items: end;
   margin-top: 28px;
+}
+.schedule-form > .schedule-editing-note {
+  grid-column: 1 / -1;
 }
 .schedule-form label {
   display: grid;
   gap: 5px;
-  min-width: 90px;
+  min-width: 0;
   color: var(--muted);
   font-size: 12px;
 }
 .schedule-form input,
+.schedule-form select,
+.schedule-form .datetime-wrap,
+.schedule-form .select-wrap {
+  width: 100%;
+  min-width: 0;
+}
+.schedule-form input,
 .schedule-form select {
-  min-height: 40px;
+  /* 44px 桌面与手机一致：手机端媒体查询本就压到 44（触控目标），
+     桌面若停在 40 会两端不齐。 */
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 6px;
   padding: 7px 9px;
   background: var(--surface-raised);
 }
 .schedule-form button {
-  min-height: 40px;
+  min-height: 44px;
   border: 0;
   border-radius: 6px;
   background: var(--accent);
@@ -1864,7 +1879,10 @@ h2 {
   font-size: 13px;
 }
 .detail-panel textarea {
-  min-height: 130px;
+  /* 补充内容：空白时一格高，与事项标题输入一致（可手动向下拉伸）。
+     默认 rows=2 的固有高度会让它比 min-height 高一截，所以定高。 */
+  min-height: 44px;
+  height: 44px;
   resize: vertical;
 }
 .detail-form-grid {
@@ -2379,6 +2397,9 @@ h2 {
   select,
   textarea {
     min-height: 44px;
+  }
+  .schedule-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .semester-create input,
   .schedule-form input,
@@ -4285,9 +4306,15 @@ h2 {
    收起态用自然语言（时间未定 / 开始于… / …发生 / 截止于…），
    展开后按 开始 / 发生 / 截止 三种用户语义各一行。
    底层仍是 start_at / occurrence_start_at / occurrence_end_at / due_at。
+
+   整块字号统一为 13px（= 行首 开始/发生/截止 的字号）：块内控件一律
+   `font: inherit`，而行已从 <label> 改成 <div>，不再吃到
+   `.detail-panel label` 的 13px —— 不显式定字号就会漂到正文 16px，
+   框内提示、时间未定、调整时间/完成/清除/先不设置 会一起变大。
    --------------------------------------------------------------------- */
 .time-block {
   grid-column: 1 / -1;
+  font-size: 13px;
   margin-top: 4px;
   padding: 12px 13px;
   background: var(--surface);
@@ -4351,15 +4378,29 @@ h2 {
   gap: 8px;
 }
 /* Higher specificity than the parent forms' `label` rules, which would
-   otherwise stack these rows vertically (detail panel) or grid them. */
+   otherwise stack these rows vertically (detail panel) or grid them.
+   The fields live in their own grid so a third box (发生结束) gets its own
+   full-width line instead of squeezing three boxes into one narrow row. */
 .time-block .time-block-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   margin-bottom: 0;
 }
+.time-block .time-block-fields {
+  flex: 1 1 260px;
+  min-width: 0;
+  display: grid;
+  /* 150px 下限：英文占位「Time (optional)」实测在 133px 会被截断，
+     两端（桌面 262 / 手机 274 可用宽）都会落到单列，永不挤到截字。 */
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+.time-block .time-block-fields > .datetime-wrap:nth-child(3) {
+  grid-column: 1 / -1;
+}
 .time-block .time-block-row .datetime-wrap {
-  flex: 1;
   min-width: 0;
 }
 .time-block-kind {

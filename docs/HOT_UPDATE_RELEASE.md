@@ -10,8 +10,8 @@
 ## 1. 发版流程（一条命令 + 两个前置）
 
 1. **改版本**：`src-tauri/tauri.conf.json` 的 `version` **必须递增**（与线上清单相等不触发更新）。
-   **发布策略（当前，2026-10-11 起）**：每个正式版本使用**独立的新 Release/Tag**（`v0.2.0`、`v0.3.0`…），Tag 只创建一次、**永不移动**（无 `git tag -f`/`git push -f`）。
-   **历史记录**：`v0.1.0` 时期（2026-10-07～10）采用单 Release 反复覆盖、tag 固定 `v0.1.0` 的旧策略——该 Release/Tag 及其资产作为历史**完整保留**，任何新发布流程不得修改或删除。
+   **发布策略（当前，2026-10-12 起）**：**系列 Release**——`0.2.x` 每个版本都并入 **`v0.2.0`**（0.1.x 当年同样全部挂在 `v0.1.0` 下），**不为 `0.2.1` / `0.2.2`… 新建 Tag**；系列 Tag 只在首发时创建、**永不移动**（无 `git tag -f`/`git push -f`）。资产名仍带完整版本号（`daymark_0.2.2_x64-setup.exe`），同系列历史包长期保留、不自动清理；Release 标题统一 `Daymark 拾序 v0.2.0`。
+   **历史记录**：2026-10-11 曾短暂改为「每版本独立 Release/Tag」（因此产生了 `v0.2.1` 这一个例外），2026-10-12 按用户要求恢复系列策略；`v0.1.0` 的历史 Release/Tag/资产完整保留。
 2. **双端构建**（签名环境变量必须带，否则无 `.sig`）：
    - exe：`pnpm exec tauri build` → `src-tauri/target/release/bundle/nsis/拾序_<ver>_x64-setup.exe` + `.sig`
    - apk：补丁版 `E:\devtools\tauri-cli-src\tauri-cli-2.12.1\target\release\cargo-tauri.exe android build --ci --apk`（四坑见 [`ANDROID_APK_BUILD.md`](ANDROID_APK_BUILD.md)）

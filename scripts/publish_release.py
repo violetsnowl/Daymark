@@ -1,12 +1,18 @@
-"""Daymark release publisher — per-version Release/Tag mode (v0.2.0 era).
+"""Daymark release publisher — series Release mode (0.2.x → v0.2.0).
 
-Release policy (2026-10-11, Stage 6A):
-- Every official version gets its OWN GitHub Release and Tag: v0.2.0, v0.3.0…
-  Tags are created once and NEVER moved (no `git tag -f`, no `git push -f`).
+Release policy (2026-10-12, 用户拍板恢复 0.1.x 策略):
+- 每个**系列**一个 Release/Tag：0.2.x 的每个版本都并入 `v0.2.0`，
+  0.1.x 当年也是这样（全部 0.1.N 都在 v0.1.0 下）。
+  **不再为 0.2.1、0.2.2…新建 Tag**；Tag 只在系列首发时创建、永不移动
+  （no `git tag -f`, no `git push -f`）。
+- 资产名仍带完整版本号（`daymark_0.2.2_x64-setup.exe` /
+  `app-universal-release-0.2.2.apk`），只是挂在系列 Release 下；同系列
+  历史包长期保留、永不自动清理。
+- Release 标题统一为 `Daymark 拾序 v0.2.0`（缺失/旧名会被规范化）。
 - v0.1.0 is a historical release: it is never modified, overwritten, deleted
   or re-tagged by this script. Historical releases are structurally out of
   scope — the script only ever lists/uploads/deletes within the CURRENT
-  version's release.
+  release.
 - Asset naming is unchanged:
     Windows:  daymark_<version>_x64-setup.exe   (versioned, immutable)
     Android:  app-universal-release-<version>.apk (versioned, immutable)
@@ -92,8 +98,20 @@ SERVER_UPDATE_DIR = "/opt/daymark/update"
 LEGACY_APK_NAME = "app-universal-release.apk"
 
 
+def series_tag(version: str) -> str:
+    """Series anchor tag — 0.2.x 每个版本都并入 v0.2.0（与 0.1.x 时期
+    「单 Release 覆盖 v0.1.0」同一策略，2026-10-12 用户拍板恢复）。
+
+    0.2.0 → v0.2.0；0.2.1/0.2.2 → v0.2.0；0.3.0 → v0.3.0。
+    资产名仍然带完整版本号（daymark_0.2.2_x64-setup.exe），只是挂在
+    系列 Release 下，Tag 永不新建、永不移动。
+    """
+    major, minor, *_ = version.split(".")
+    return f"v{major}.{minor}.0"
+
+
 def tag_for(version: str) -> str:
-    return f"v{version}"
+    return series_tag(version)
 
 
 def die(msg: str) -> None:
@@ -462,6 +480,24 @@ class RealTransport:
                 return None
         return None
 
+    def set_release_name(self, release_id: int, name: str) -> None:
+        """Canonical release title (Daymark 拾序 v0.2.0). Same redirect
+        caveat as set_body → curl -L replays the PATCH body."""
+        name_file = os.path.join(os.environ.get("TMPDIR", "."), "release_name.json")
+        with open(name_file, "w", encoding="utf-8") as fh:
+            json.dump({"name": name}, fh, ensure_ascii=False)
+        code = subprocess.run(
+            ["curl", "-sSL", "-o", os.devnull, "-w", "%{http_code}",
+             "-X", "PATCH",
+             "-H", f"Authorization: Bearer {self.token}",
+             "-H", "Accept: application/vnd.github+json",
+             "--data-binary", f"@{name_file}",
+             f"{REPO_API}/releases/{release_id}"],
+            capture_output=True, timeout=120,
+        ).stdout.decode().strip()
+        if code not in ("200", "201"):
+            die(f"更新 Release 名称失败: {code}")
+
     def set_body(self, release_id: int, body: str) -> None:
         # PATCH answers 307 here and urllib refuses to replay bodies through
         # redirects — curl -L follows and keeps the method.
@@ -495,19 +531,30 @@ def publish(t, cfg) -> None:
     apk_sha = sha256_file(cfg.apk)
     post_errors: list[str] = []
 
-    # --- Phase 0: ENSURE tag + release (create once, never move) ----------
+    # --- Phase 0: ENSURE series tag + release (create once, never move) ---
+    # 系列模式：0.2.x 不新建 Tag，一律并入 v0.2.0。锚点 Tag 指向它自己
+    # 那次首发提交（与当前 HEAD 不同是常态），只有「首发版本自身」被改写
+    # 时才失败关闭。
     tag_sha = t.get_tag_sha(tag)
+    is_series_anchor_version = tag == f"v{version}"
     if tag_sha is None:
         t.create_tag(tag)
         print(f"[0/6] Tag {tag} 已创建并推送（指向 {cfg.head_sha[:10]}，永不移动）")
-    elif tag_sha != cfg.head_sha:
+    elif is_series_anchor_version and tag_sha != cfg.head_sha:
         die(f"Tag {tag} 已存在且指向 {tag_sha}，与目标提交 {cfg.head_sha} 不符——"
             f"失败关闭；不移动、不覆盖既有 Tag")
+    elif tag_sha != cfg.head_sha:
+        print(f"[0/6] Tag {tag} 为系列锚点（指向 {tag_sha[:10]}，非本次 HEAD）——"
+              f"本版本并入该 Release，不新建 Tag")
     rel = t.get_release(tag)
+    release_name = f"Daymark 拾序 {tag}"
     if rel is None:
-        rel = t.create_release(tag, f"Daymark {version}")
-        print(f"[0/6] Release {tag} 已创建（独立新 Release，不动历史 Release）")
+        rel = t.create_release(tag, release_name)
+        print(f"[0/6] Release {tag} 已创建（{release_name}）")
     else:
+        if (rel.get("name") or "") != release_name:
+            t.set_release_name(rel["id"], release_name)
+            print(f"[0/6] Release 名称已统一为「{release_name}」（原「{rel.get('name')}」）")
         print(f"[0/6] Release {tag} 已存在且 Tag 一致——按幂等重试继续")
 
     # --- Phase 1: STAGE new assets (old manifest + old assets untouched) ---
@@ -670,7 +717,19 @@ def publish(t, cfg) -> None:
         missing = [n for n in expected if n not in names]
         if missing:
             post_errors.append(f"读回核对缺失预期资产: {', '.join(missing)}")
-        extras = [n for n in names if n not in expected]
+        # 系列模式：同系列的历史版本资产（0.2.0/0.2.1… 的包）与固定名别名
+        # 都是预期内容，只把真·外来资产当未预期项上报。
+        series = ".".join(version.split(".")[:2])
+
+        def in_series(name: str) -> bool:
+            return (
+                name.startswith(f"daymark_{series}.") and name.endswith("_x64-setup.exe")
+            ) or (
+                name.startswith(f"app-universal-release-{series}.")
+                and name.endswith(".apk")
+            )
+
+        extras = [n for n in names if n not in expected and not in_series(n)]
         if extras:
             print(f"[5/6] WARN 当前 Release 存在未预期资产（不自动删除，人工确认）: {', '.join(extras)}")
         print(f"[5/6] 回读资产: {names}")

@@ -115,9 +115,16 @@ class FakeTransport:
     def create_release(self, tag, name):
         self._record(("create_release", tag))
         self.releases[tag] = {"id": 100 + len(self.releases),
+                              "name": name,
                               "upload_url": f"https://uploads.github.com/{tag}{{",
                               "assets": []}
         return json.loads(json.dumps(self.releases[tag]))
+
+    def set_release_name(self, release_id, name):
+        self._record(("set_release_name", name))
+        for rel in self.releases.values():
+            if rel.get("id") == release_id:
+                rel["name"] = name
 
     def upload_asset(self, tag, release, name, path):
         self._record(("upload", tag, name))
@@ -332,6 +339,66 @@ class PublishFlowTest(unittest.TestCase):
         self.assertNotIn("create_tag", ev, "不得移动/重建既有 Tag")
         self.assertNotIn("upload", ev)
         self.assertNotIn("FLIP", ev)
+
+    # ---- 系列模式（2026-10-12 用户拍板恢复 0.1.x 策略） --------------
+    def test_series_tag_maps_patch_versions_to_the_anchor(self):
+        self.assertEqual(pr.tag_for("0.2.0"), "v0.2.0")
+        self.assertEqual(pr.tag_for("0.2.1"), "v0.2.0")
+        self.assertEqual(pr.tag_for("0.2.15"), "v0.2.0")
+        self.assertEqual(pr.tag_for("0.3.0"), "v0.3.0")
+
+    @staticmethod
+    def _series_release(name="Daymark 0.2.0", assets=()):
+        return {"id": 7, "name": name,
+                "upload_url": "https://uploads.github.com/v0.2.0{",
+                "assets": list(assets)}
+
+    def _seeded_series(self, cfg, name="Daymark 0.2.0", assets=()):
+        t = seed_current(FakeTransport(live=old_live_manifest(),
+                                       tags={"v0.2.0": "a" * 40}), cfg)
+        t.releases["v0.2.0"] = self._series_release(name, assets)
+        return t
+
+    def test_patch_release_never_creates_a_new_tag_or_release(self):
+        cfg = make_cfg(self.tmp.name, version="0.2.1")
+        t = self._seeded_series(cfg)
+        out, _ = run_publish(t, cfg)
+        ev = t.events
+        created_tags = [e for e in ev if e[0] == "create_tag"]
+        created_rels = [e for e in ev if e[0] == "create_release"]
+        self.assertEqual(created_tags, [], "0.2.1 不得新建 Tag（并入 v0.2.0）")
+        self.assertEqual(created_rels, [], "0.2.1 不得新建 Release")
+        uploads = [(e[1], e[2]) for e in ev if e[0] == "upload"]
+        self.assertIn(("v0.2.0", cfg.exe_name), uploads)
+        self.assertIn(("v0.2.0", cfg.apk_name), uploads)
+        self.assertIn("完成。清单", out)
+
+    def test_release_title_is_canonicalized_to_the_series_form(self):
+        cfg = make_cfg(self.tmp.name, version="0.2.1")
+        t = self._seeded_series(cfg, name="Daymark 0.2.0")
+        run_publish(t, cfg)
+        renames = [e for e in t.events if e[0] == "set_release_name"]
+        self.assertEqual(renames, [("set_release_name", "Daymark 拾序 v0.2.0")])
+        self.assertEqual(t.releases["v0.2.0"]["name"], "Daymark 拾序 v0.2.0")
+
+    def test_series_sibling_assets_are_not_reported_as_extras(self):
+        cfg = make_cfg(self.tmp.name, version="0.2.1")
+        siblings = [
+            {"id": 501, "name": "daymark_0.2.0_x64-setup.exe", "size": 111,
+             "browser_download_url": _gh_url("daymark_0.2.0_x64-setup.exe", "v0.2.0")},
+            {"id": 502, "name": "app-universal-release-0.2.0.apk", "size": 222,
+             "browser_download_url": _gh_url("app-universal-release-0.2.0.apk", "v0.2.0")},
+            {"id": 503, "name": "daymark_0.1.15_x64-setup.exe", "size": 333,
+             "browser_download_url": _gh_url("daymark_0.1.15_x64-setup.exe", "v0.2.0")},
+        ]
+        t = self._seeded_series(cfg, assets=siblings)
+        out, _ = run_publish(t, cfg)
+        warn = [line for line in out.splitlines() if "未预期资产" in line]
+        self.assertEqual(len(warn), 1, out)
+        # 同系列历史包 = 预期，不上报；异系列外来包照报（但绝不自动删除）。
+        self.assertIn("daymark_0.1.15_x64-setup.exe", warn[0])
+        self.assertNotIn("app-universal-release-0.2.0.apk", warn[0])
+        self.assertNotIn("daymark_0.2.0_x64-setup.exe", warn[0])
 
     # ---- item 6: retry semantics --------------------------------------
     def test_retry_identical_content_reuses_asset(self):

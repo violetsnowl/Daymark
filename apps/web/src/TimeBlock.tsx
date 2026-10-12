@@ -224,42 +224,44 @@ export function TimeBlock({ value, onChange }: Props) {
         <div className="time-block-editor">
           <div className="time-block-row">
             <span className="time-block-kind">{t("item.start")}</span>
-            <DateTimeField
-              mode="date"
-              label={t("item.startDateField")}
-              ariaLabel={t("item.startDateField")}
-              placeholder={t("item.dateOnlyHint")}
-              value={dayOf(value.startDate, value.startAt)}
-              onChange={(next) => {
-                // Clearing the day removes the whole value: a clock without
-                // a day has no column to live in (ADR-010).
-                if (!next) {
-                  onChange({ ...value, startDate: "", startAt: "" });
-                  return;
-                }
-                const { date, at } = composeTime(
-                  next,
-                  clockOf(value.startAt),
-                  localDay(),
-                );
-                onChange({ ...value, startDate: date, startAt: at });
-              }}
-            />
-            <DateTimeField
-              mode="time"
-              label={t("item.startTimeField")}
-              ariaLabel={t("item.startTimeField")}
-              placeholder={t("item.timeOnlyHint")}
-              value={clockOf(value.startAt)}
-              onChange={(next) => {
-                const { date, at } = composeTime(
-                  dayOf(value.startDate, value.startAt),
-                  next,
-                  localDay(),
-                );
-                onChange({ ...value, startDate: date, startAt: at });
-              }}
-            />
+            <div className="time-block-fields">
+              <DateTimeField
+                mode="date"
+                label={t("item.startDateField")}
+                ariaLabel={t("item.startDateField")}
+                placeholder={t("item.dateOnlyHint")}
+                value={dayOf(value.startDate, value.startAt)}
+                onChange={(next) => {
+                  // Clearing the day removes the whole value: a clock without
+                  // a day has no column to live in (ADR-010).
+                  if (!next) {
+                    onChange({ ...value, startDate: "", startAt: "" });
+                    return;
+                  }
+                  const { date, at } = composeTime(
+                    next,
+                    clockOf(value.startAt),
+                    localDay(),
+                  );
+                  onChange({ ...value, startDate: date, startAt: at });
+                }}
+              />
+              <DateTimeField
+                mode="time"
+                label={t("item.startTimeField")}
+                ariaLabel={t("item.startTimeField")}
+                placeholder={t("item.timeOnlyHint")}
+                value={clockOf(value.startAt)}
+                onChange={(next) => {
+                  const { date, at } = composeTime(
+                    dayOf(value.startDate, value.startAt),
+                    next,
+                    localDay(),
+                  );
+                  onChange({ ...value, startDate: date, startAt: at });
+                }}
+              />
+            </div>
             {(value.startAt || value.startDate) && (
               <button
                 type="button"
@@ -273,96 +275,101 @@ export function TimeBlock({ value, onChange }: Props) {
 
           <div className="time-block-row">
             <span className="time-block-kind">{t("item.occur")}</span>
-            <DateTimeField
-              mode="date"
-              label={t("item.occurDateField")}
-              ariaLabel={t("item.occurDateField")}
-              placeholder={t("item.dateOnlyHint")}
-              value={dayOf(value.occurrenceStartDate, value.occurrenceStartAt)}
-              onChange={(next) => {
-                // Clearing the day clears the whole occurrence range.
-                if (!next) {
-                  onChange({
-                    ...value,
-                    occurrenceStartDate: "",
-                    occurrenceStartAt: "",
-                    occurrenceEndDate: "",
-                    occurrenceEndAt: "",
-                  });
-                  return;
-                }
-                const { date, at } = composeTime(
-                  next,
-                  clockOf(value.occurrenceStartAt),
-                  localDay(),
-                );
-                onChange({
-                  ...value,
-                  occurrenceStartDate: date,
-                  occurrenceStartAt: at,
-                  // The end mirrors the start's precision: an all-day end
-                  // only belongs to a DATE start, a timed end only to a
-                  // DATETIME start — never a column the editor cannot show.
-                  occurrenceEndDate: at ? "" : value.occurrenceEndDate,
-                  occurrenceEndAt: at ? value.occurrenceEndAt : "",
-                });
-              }}
-            />
-            <DateTimeField
-              mode="time"
-              label={t("item.occurStartField")}
-              ariaLabel={t("item.occurStartField")}
-              placeholder={t("item.timeOnlyHint")}
-              value={clockOf(value.occurrenceStartAt)}
-              onChange={(next) => {
-                const { date, at } = composeTime(
-                  dayOf(value.occurrenceStartDate, value.occurrenceStartAt),
-                  next,
-                  localDay(),
-                );
-                if (!date && !at) {
-                  onChange({
-                    ...value,
-                    occurrenceStartDate: "",
-                    occurrenceStartAt: "",
-                    occurrenceEndDate: "",
-                    occurrenceEndAt: "",
-                  });
-                  return;
-                }
-                onChange({
-                  ...value,
-                  occurrenceStartDate: date,
-                  occurrenceStartAt: at,
-                  occurrenceEndDate: at ? "" : value.occurrenceEndDate,
-                  occurrenceEndAt: at ? value.occurrenceEndAt : "",
-                });
-              }}
-            />
-            {value.occurrenceStartDate && (
+            <div className="time-block-fields">
               <DateTimeField
                 mode="date"
-                label={t("item.occurEnd")}
-                ariaLabel={t("item.occurEnd")}
-                placeholder={t("item.occurEndLabel")}
-                value={value.occurrenceEndDate}
-                onChange={(next) =>
-                  onChange({ ...value, occurrenceEndDate: next })
-                }
+                label={t("item.occurDateField")}
+                ariaLabel={t("item.occurDateField")}
+                placeholder={t("item.dateOnlyHint")}
+                value={dayOf(
+                  value.occurrenceStartDate,
+                  value.occurrenceStartAt,
+                )}
+                onChange={(next) => {
+                  // Clearing the day clears the whole occurrence range.
+                  if (!next) {
+                    onChange({
+                      ...value,
+                      occurrenceStartDate: "",
+                      occurrenceStartAt: "",
+                      occurrenceEndDate: "",
+                      occurrenceEndAt: "",
+                    });
+                    return;
+                  }
+                  const { date, at } = composeTime(
+                    next,
+                    clockOf(value.occurrenceStartAt),
+                    localDay(),
+                  );
+                  onChange({
+                    ...value,
+                    occurrenceStartDate: date,
+                    occurrenceStartAt: at,
+                    // The end mirrors the start's precision: an all-day end
+                    // only belongs to a DATE start, a timed end only to a
+                    // DATETIME start — never a column the editor cannot show.
+                    occurrenceEndDate: at ? "" : value.occurrenceEndDate,
+                    occurrenceEndAt: at ? value.occurrenceEndAt : "",
+                  });
+                }}
               />
-            )}
-            {value.occurrenceStartAt && (
               <DateTimeField
-                mode="datetime"
-                label={t("item.occurEnd")}
-                ariaLabel={t("item.occurEnd")}
-                placeholder={t("item.occurEndLabel")}
-                value={value.occurrenceEndAt}
-                onChange={(next) =>
-                  onChange({ ...value, occurrenceEndAt: next })
-                }
+                mode="time"
+                label={t("item.occurStartField")}
+                ariaLabel={t("item.occurStartField")}
+                placeholder={t("item.timeOnlyHint")}
+                value={clockOf(value.occurrenceStartAt)}
+                onChange={(next) => {
+                  const { date, at } = composeTime(
+                    dayOf(value.occurrenceStartDate, value.occurrenceStartAt),
+                    next,
+                    localDay(),
+                  );
+                  if (!date && !at) {
+                    onChange({
+                      ...value,
+                      occurrenceStartDate: "",
+                      occurrenceStartAt: "",
+                      occurrenceEndDate: "",
+                      occurrenceEndAt: "",
+                    });
+                    return;
+                  }
+                  onChange({
+                    ...value,
+                    occurrenceStartDate: date,
+                    occurrenceStartAt: at,
+                    occurrenceEndDate: at ? "" : value.occurrenceEndDate,
+                    occurrenceEndAt: at ? value.occurrenceEndAt : "",
+                  });
+                }}
               />
-            )}
+              {value.occurrenceStartDate && (
+                <DateTimeField
+                  mode="date"
+                  label={t("item.occurEnd")}
+                  ariaLabel={t("item.occurEnd")}
+                  placeholder={t("item.occurEndLabel")}
+                  value={value.occurrenceEndDate}
+                  onChange={(next) =>
+                    onChange({ ...value, occurrenceEndDate: next })
+                  }
+                />
+              )}
+              {value.occurrenceStartAt && (
+                <DateTimeField
+                  mode="datetime"
+                  label={t("item.occurEnd")}
+                  ariaLabel={t("item.occurEnd")}
+                  placeholder={t("item.occurEndLabel")}
+                  value={value.occurrenceEndAt}
+                  onChange={(next) =>
+                    onChange({ ...value, occurrenceEndAt: next })
+                  }
+                />
+              )}
+            </div>
             {(value.occurrenceStartAt || value.occurrenceStartDate) && (
               <button
                 type="button"
@@ -376,40 +383,42 @@ export function TimeBlock({ value, onChange }: Props) {
 
           <div className="time-block-row">
             <span className="time-block-kind">{t("item.due")}</span>
-            <DateTimeField
-              mode="date"
-              label={t("item.dueDateField")}
-              ariaLabel={t("item.dueDateField")}
-              placeholder={t("item.dateOnlyHint")}
-              value={dayOf(value.dueDate, value.dueAt)}
-              onChange={(next) => {
-                if (!next) {
-                  onChange({ ...value, dueDate: "", dueAt: "" });
-                  return;
-                }
-                const { date, at } = composeTime(
-                  next,
-                  clockOf(value.dueAt),
-                  localDay(),
-                );
-                onChange({ ...value, dueDate: date, dueAt: at });
-              }}
-            />
-            <DateTimeField
-              mode="time"
-              label={t("item.dueTimeField")}
-              ariaLabel={t("item.dueTimeField")}
-              placeholder={t("item.timeOnlyHint")}
-              value={clockOf(value.dueAt)}
-              onChange={(next) => {
-                const { date, at } = composeTime(
-                  dayOf(value.dueDate, value.dueAt),
-                  next,
-                  localDay(),
-                );
-                onChange({ ...value, dueDate: date, dueAt: at });
-              }}
-            />
+            <div className="time-block-fields">
+              <DateTimeField
+                mode="date"
+                label={t("item.dueDateField")}
+                ariaLabel={t("item.dueDateField")}
+                placeholder={t("item.dateOnlyHint")}
+                value={dayOf(value.dueDate, value.dueAt)}
+                onChange={(next) => {
+                  if (!next) {
+                    onChange({ ...value, dueDate: "", dueAt: "" });
+                    return;
+                  }
+                  const { date, at } = composeTime(
+                    next,
+                    clockOf(value.dueAt),
+                    localDay(),
+                  );
+                  onChange({ ...value, dueDate: date, dueAt: at });
+                }}
+              />
+              <DateTimeField
+                mode="time"
+                label={t("item.dueTimeField")}
+                ariaLabel={t("item.dueTimeField")}
+                placeholder={t("item.timeOnlyHint")}
+                value={clockOf(value.dueAt)}
+                onChange={(next) => {
+                  const { date, at } = composeTime(
+                    dayOf(value.dueDate, value.dueAt),
+                    next,
+                    localDay(),
+                  );
+                  onChange({ ...value, dueDate: date, dueAt: at });
+                }}
+              />
+            </div>
             {(value.dueAt || value.dueDate) && (
               <button type="button" className="quiet-button" onClick={clearDue}>
                 {t("common.clear")}

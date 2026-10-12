@@ -6,7 +6,7 @@
 
 - **项目**：拾序 Daymark——面向学生的课程事务应用（Windows Tauri 2 + 安卓 APK + 云端 API；本地优先、登录后云同步）。代码/文件侧 `daymark`。
 - **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0、v0.2.1 均已发布**，2026-10-11）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
-- **产品/发布**：GitHub `violetsnowl/Daymark`；**多 Release 策略**（每版本独立 Release/Tag、Tag 只建不移、`v0.1.0` 永久保留），当前版本 **0.2.1**（Tag `v0.2.1` → `c3dbf8b`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
+- **产品/发布**：GitHub `violetsnowl/Daymark`；**系列 Release 策略**（2026-10-12 恢复 0.1.x 打法：0.2.x 每个版本并入 `v0.2.0`、**不新建 Tag**；Tag 只建不移），当前版本 **0.2.2**（系列 Tag `v0.2.0` → `e3d326dc`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
 - **门控基线**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check` 全 0；套件 **411 passed + 2 skipped**（2 skip=真实 PG 集成用例，不算通过）。
 - **DATE/DATETIME**：Item 增加 `start_date` / `occurrence_start_date` / `occurrence_end_date` / `due_date` / `time_zone`；RawCapture 增加 `captured_tz`。互斥不变量与行为见 `docs/ADR-010-date-datetime-precision.md` 与母稿 `22_NATURAL_LANGUAGE_TIME_SPEC.md`。
 - **外部 lane**：A–F 已全部 `VERIFIED REAL`；**007 迁移已于 2026-10-11 应用到生产库**（核验见 §29）。

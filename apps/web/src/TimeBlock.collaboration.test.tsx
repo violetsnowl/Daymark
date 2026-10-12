@@ -88,8 +88,13 @@ it("keeps the chosen day when a clock is picked, and never loses it to 今天", 
 
   await click(openEditor(container));
   const [dateBox, clockBox] = boxInputs(container);
-  expect(dateBox?.value).toBe("仅选日期");
-  expect(clockBox?.value).toBe("仅选时间（可不填）");
+  expect(dateBox?.value).toBe("日期");
+  expect(clockBox?.value).toBe("时间（选填）");
+  // 每行的框都收在自己的 fields 网格里（第三框独占一行，不再三框挤一行）。
+  expect(container.querySelectorAll(".time-block-fields")).toHaveLength(3);
+  expect(
+    container.querySelectorAll(".time-block-row .datetime-wrap"),
+  ).toHaveLength(6);
 
   // 1) Pick the day first — the date box commits on its own.
   await click(dateBox);
