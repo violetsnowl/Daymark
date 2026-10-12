@@ -16,8 +16,8 @@
    - exe：`pnpm exec tauri build` → `src-tauri/target/release/bundle/nsis/拾序_<ver>_x64-setup.exe` + `.sig`
    - apk：补丁版 `E:\devtools\tauri-cli-src\tauri-cli-2.12.1\target\release\cargo-tauri.exe android build --ci --apk`（四坑见 [`ANDROID_APK_BUILD.md`](ANDROID_APK_BUILD.md)）
 3. **一键发布**：`uv run --with paramiko python scripts/publish_release.py --notes "<更新卡文案（白话）>" --body "<Release 正文（白话）>"`
-   = 验签（缺 `.sig` 自动补签）→ **确保 Tag/Release**（`v<版本>` 不存在则创建且永不移动；已存在但指向别的提交=失败关闭）→ **版本化资产暂存 + 内容校验**（SHA-256 确认一致才复用，线上引用资产绝不覆盖）→ 逐 URL 大小校验（无法确认即停）→ **清单原子翻转放最后**（SFTP posix_rename 单翻转点，失败关闭、旧清单保持可读；翻转异常先回读三分类）→ 更新正文 → **刷新固定名别名**（上传后校验；失败=报「部分完成」exit 2 + 恢复路径，不报成功）→ **回读核对**（预期资产齐备；未预期资产只报告不自动删除——多 Release 模式永不清理历史版本资产，旧版可用性优先）。**翻转前任何失败 = 线上零变化，直接重跑即可。**
-4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`。**保留策略（真实行为）**：各版本资产随其**专属 Release 长期保留**，历史 Release（含 `v0.1.0`）永不自动清理、永不修改——旧版下载与回退可用性优先。
+   = 验签（缺 `.sig` 自动补签）→ **确保 Tag/Release**（`v<版本>` 不存在则创建且永不移动；已存在但指向别的提交=失败关闭）→ **版本化资产暂存 + 内容校验**（SHA-256 确认一致才复用，线上引用资产绝不覆盖）→ 逐 URL 大小校验（无法确认即停）→ **清单原子翻转放最后**（SFTP posix_rename 单翻转点，失败关闭、旧清单保持可读；翻转异常先回读三分类）→ **更新正文（`merge_body` 按小版本分节合并：新版插最前打「（当前）」、自带该版本 exe/apk 下载链接、历史小节整体保留、重跑同版本原地替换）** → **刷新固定名别名**（上传后校验；失败=报「部分完成」exit 2 + 恢复路径，不报成功）→ **回读核对**（预期资产齐备；未预期资产只报告不自动删除——多 Release 模式永不清理历史版本资产，旧版可用性优先）。**翻转前任何失败 = 线上零变化，直接重跑即可。**
+4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`。**保留策略（真实行为）**：同系列各版本资产在**同一个系列 Release 下长期保留**（`v0.2.0` 下 0.2.0 / 0.2.1 / 0.2.2 并存），历史 Release（含 `v0.1.0`）永不自动清理、永不修改——旧版下载与回退可用性优先。**Release 正文按小版本分节**（`# 拾序 Daymark 系列更新记录`，`---` 分隔），每节带该版本自己的下载链接；GitHub 的资产列表本身是扁平的、平台不支持分组，分节正文即各版本的入口。
 
 ## 2. 关键位置
 

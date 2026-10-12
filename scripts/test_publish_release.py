@@ -164,6 +164,9 @@ class FakeTransport:
 
     def set_body(self, release_id, body):
         self._record(("set_body", body))
+        for rel in self.releases.values():
+            if rel.get("id") == release_id:
+                rel["body"] = body
 
     # -- Server-ish ------------------------------------------------------
     def server_put(self, local, remote):
@@ -399,6 +402,59 @@ class PublishFlowTest(unittest.TestCase):
         self.assertIn("daymark_0.1.15_x64-setup.exe", warn[0])
         self.assertNotIn("app-universal-release-0.2.0.apk", warn[0])
         self.assertNotIn("daymark_0.2.0_x64-setup.exe", warn[0])
+
+    # ---- 系列 Release 正文：按小版本分节 --------------------------------
+    @staticmethod
+    def _last_body(t):
+        bodies = [e[1] for e in t.events if e[0] == "set_body"]
+        return bodies[-1] if bodies else ""
+
+    def _seeded_series_with_body(self, cfg, body):
+        t = self._seeded_series(cfg)
+        t.releases["v0.2.0"]["body"] = body
+        return t
+
+    def test_body_is_merged_into_version_sections_with_own_links(self):
+        cfg = make_cfg(self.tmp.name, version="0.2.3")
+        cfg.body = "0.2.3 的更新介绍"
+        old = (f"{pr.RELEASE_HEADER}\n\n{pr.RELEASE_INTRO}\n\n---\n\n"
+               + "## 0.2.2（当前）\n\n旧介绍\n\n" + pr.download_links(
+                   "v0.2.0", "daymark_0.2.2_x64-setup.exe",
+                   "app-universal-release-0.2.2.apk"))
+        t = self._seeded_series_with_body(cfg, old)
+        run_publish(t, cfg)
+        body = self._last_body(t)
+        lines = body.splitlines()
+        self.assertEqual(lines[0], pr.RELEASE_HEADER)
+        self.assertIn("## 0.2.3（当前）", lines)
+        self.assertIn("## 0.2.2", lines)
+        # 新小节在最前，历史小节在其后且摘掉「（当前）」标记
+        self.assertLess(lines.index("## 0.2.3（当前）"), lines.index("## 0.2.2"))
+        self.assertNotIn("0.2.2（当前）", body)
+        # 每节带自己的下载链接，历史小节的链接不丢
+        self.assertIn("daymark_0.2.3_x64-setup.exe", body)
+        self.assertIn("daymark_0.2.2_x64-setup.exe", body)
+
+    def test_body_rerun_does_not_duplicate_its_own_section(self):
+        cfg = make_cfg(self.tmp.name, version="0.2.3")
+        cfg.body = "0.2.3 的更新介绍"
+        t = self._seeded_series_with_body(cfg, "")
+        run_publish(t, cfg)
+        first = self._last_body(t)
+        t.events.clear()
+        run_publish(t, cfg)
+        second = self._last_body(t)
+        self.assertEqual(second.count("## 0.2.3"), 1, second)
+        self.assertEqual(second, first, "重跑同一版本正文应完全幂等")
+
+    def test_legacy_plain_body_is_replaced_by_the_sectioned_form(self):
+        cfg = make_cfg(self.tmp.name, version="0.2.3")
+        cfg.body = "新版介绍"
+        t = self._seeded_series_with_body(cfg, "0.2.2 是一个排版优化版：…（旧扁平正文）")
+        run_publish(t, cfg)
+        body = self._last_body(t)
+        self.assertTrue(body.startswith(pr.RELEASE_HEADER))
+        self.assertNotIn("旧扁平正文", body, "无系列结构的旧正文应被整体替换")
 
     # ---- item 6: retry semantics --------------------------------------
     def test_retry_identical_content_reuses_asset(self):

@@ -116,6 +116,61 @@ def tag_for(version: str) -> str:
     return series_tag(version)
 
 
+RELEASE_HEADER = "# 拾序 Daymark 系列更新记录"
+RELEASE_INTRO = ("每个小版本的更新介绍与安装包分节列出，"
+                 "点对应小节里的链接可直接下载该版本。")
+
+
+def download_links(tag: str, exe_name: str, apk_name: str) -> str:
+    base = f"{REPO_DL}/{tag}"
+    return (f"**本版本下载**：[Windows 安装包]({base}/{exe_name})"
+            f" · [安卓 APK]({base}/{apk_name})")
+
+
+def _split_body(existing: str) -> "tuple[str, list[str]]":
+    """拆成（头部块, 小节列表）；没有系列结构时头部为空串。"""
+    if RELEASE_HEADER not in existing:
+        return "", []
+    lines = existing.splitlines()
+    head: list[str] = []
+    i = 0
+    while i < len(lines) and not lines[i].startswith("## "):
+        head.append(lines[i])
+        i += 1
+    sections = [s.strip() for s in "\n".join(lines[i:]).split("\n---\n") if s.strip()]
+    return "\n".join(head).rstrip("\n"), sections
+
+
+def _section_version(section: str) -> str:
+    first = section.splitlines()[0] if section else ""
+    if first.startswith("## "):
+        return first[2:].replace("（当前）", "").strip()
+    return ""
+
+
+def merge_body(existing: str, version: str, notes: str,
+               exe_name: str, apk_name: str, tag: str) -> str:
+    """系列 Release 正文：每个小版本一节 = 更新介绍 + 该版本自己的下载链接。
+
+    新版本插到最前面并打「（当前）」，历史小节整体保留、标记随之摘掉；
+    重跑同一版本原地替换那一节（不会重复）。没有系列结构的旧正文会被
+    新结构整体替换（一次性迁移，之后每版都走合并）。
+    """
+    head, sections = _split_body(existing)
+    if not head:
+        head = f"{RELEASE_HEADER}\n\n{RELEASE_INTRO}"
+    new = (f"## {version}（当前）\n\n{notes.strip()}\n\n"
+           + download_links(tag, exe_name, apk_name))
+    kept = []
+    for s in sections:
+        ver = _section_version(s)
+        if not ver or ver == version:
+            continue
+        body = "\n".join(s.splitlines()[1:]).lstrip("\n")
+        kept.append(f"## {ver}\n\n{body}")
+    return head + "\n\n" + "\n\n---\n\n".join([new] + kept)
+
+
 def die(msg: str) -> None:
     print(f"ERROR: {msg}", file=sys.stderr)
     raise SystemExit(1)
@@ -741,8 +796,11 @@ def publish(t, cfg) -> None:
     # --- Phase 4: body (post-flip failures = PARTIAL, never hidden) -------
     if cfg.body:
         try:
-            t.set_body(rel["id"], cfg.body)
-            print("[3/6] Release 正文已更新（白话版）")
+            rel_body = (t.get_release(tag) or rel) or {}
+            merged = merge_body(rel_body.get("body") or "", version, cfg.body,
+                                exe_name, apk_name, tag)
+            t.set_body(rel["id"], merged)
+            print("[3/6] Release 正文已按小版本分节更新（新版在最前，历史小节保留）")
         except (Exception, SystemExit) as exc:  # noqa: BLE001
             post_errors.append(f"Release 正文更新失败: {exc}（重跑本脚本或手动 PATCH 正文）")
     else:
