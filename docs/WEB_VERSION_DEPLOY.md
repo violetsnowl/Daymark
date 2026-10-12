@@ -26,6 +26,7 @@
 - Cloudflare Workers 项目 `daymark-app` 自本仓库首构并部署成功（2026-10-12，workers.dev 预览 `https://daymark-app.a161858970.workers.dev`）。
 - 2026-10-12：`app.daymark.top` 由「→ 下载页 302」改绑为网页版本体（`daymark-app`）；官网下载页「进入网页版」就此接通。
 - 2026-10-12（晚）：线上构建缺 `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY`（首构只给了 `VITE_API_BASE_URL`）→ 线上账号层降级为「仅本机」、账户面板无登录口。修法 = CF 项目 Settings → Build → Build variables and secrets 补两条（值自根 `.env`），保存后由下一次构建生效。
+- 2026-10-12（晚）：两条构建变量已由用户在 CF 补配；本次提交用作重建触发（验证：线上 bundle 含 Supabase 配置、登录口回归）。
 
 ## 验收清单（部署后逐项标记）
 
