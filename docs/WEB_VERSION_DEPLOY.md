@@ -32,7 +32,7 @@
 
 - [x] 预览 URL `https://daymark-app.a161858970.workers.dev`（2026-10-12 首构 `d572ab93`）：启动零控制台报错；快速记录（本地）闭环（raw_captures=1 / items=1 / outbox_mutations=4，自然语言解析正确）；CORS 直连 `api.daymark.top`（health 200）；安卓 UA：首启引导不误弹、无横向溢出。
 - [x] `app.daymark.top`：绑定完成并验证（2026-10-12）——200 直出应用；下载页「进入网页版」直达；`api` 三件套不受影响。绑定弹窗有已知抽风：输入子域报 `No zones match app.daymark.top` 并提示 "start by adding the domain to Cloudflare"（**陷阱，勿照做**）；绕法 = 弹窗内先选 zone `daymark.top` + 子域填 `app`，或改用 Route（占位 `A 192.0.2.1` 橙云 + `app.daymark.top/*`）。
-- [ ] 登录 → 同步端到端（真实账号，**由用户执行**）：登录成功、云数据出现、与壳端一致。
+- [x] 登录 → 同步端到端：**用户验收成功（2026-10-12）**——登录顺利、数据同步，网页版正式收货。
 - [ ] 待定项：同一浏览器多标签页的并发同步行为（双同步器）专项验证；`navigator.storage.persist()` 持久化申请（可选，有云同步兜底）。
 
 ## 已知边界（如实记录）
