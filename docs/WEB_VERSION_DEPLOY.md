@@ -23,11 +23,12 @@
 - `FirstLaunchGuide` 的显示门从 `isAndroid()` 收紧为 `isTauri() && isAndroid()`：安卓手机浏览器 UA 命中 `isAndroid` 但**没有**壳的跳转设置页，会误弹壳专用首启引导（三个设置按钮点了没反应）。纯浏览器（桌面/手机）与桌面壳不再出现；安卓壳行为不变。纯函数门 `shouldShowPermissionGuide` 语义不变，单测保持。
 - 新增根级 `wrangler.jsonc`：静态资产部署配置，不参与任何现有构建（wrangler 之外的工具不读取它）。
 - Cloudflare Workers 项目 `daymark-app` 自本仓库首构并部署成功（2026-10-12，workers.dev 预览 `https://daymark-app.a161858970.workers.dev`）。
+- 2026-10-12：`app.daymark.top` 由「→ 下载页 302」改绑为网页版本体（`daymark-app`）；官网下载页「进入网页版」就此接通。
 
 ## 验收清单（部署后逐项标记）
 
 - [x] 预览 URL `https://daymark-app.a161858970.workers.dev`（2026-10-12 首构 `d572ab93`）：启动零控制台报错；快速记录（本地）闭环（raw_captures=1 / items=1 / outbox_mutations=4，自然语言解析正确）；CORS 直连 `api.daymark.top`（health 200）；安卓 UA：首启引导不误弹、无横向溢出。
-- [ ] `app.daymark.top`：自定义域名绑定后 200；下载页「进入网页版」直达应用。
+- [x] `app.daymark.top`：绑定完成并验证（2026-10-12）——200 直出应用；下载页「进入网页版」直达；`api` 三件套不受影响。绑定弹窗有已知抽风：输入子域报 `No zones match app.daymark.top` 并提示 "start by adding the domain to Cloudflare"（**陷阱，勿照做**）；绕法 = 弹窗内先选 zone `daymark.top` + 子域填 `app`，或改用 Route（占位 `A 192.0.2.1` 橙云 + `app.daymark.top/*`）。
 - [ ] 登录 → 同步端到端（真实账号，**由用户执行**）：登录成功、云数据出现、与壳端一致。
 - [ ] 待定项：同一浏览器多标签页的并发同步行为（双同步器）专项验证；`navigator.storage.persist()` 持久化申请（可选，有云同步兜底）。
 
