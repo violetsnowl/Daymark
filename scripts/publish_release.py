@@ -72,6 +72,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # Version in the filename climbs with every bump — glob instead of pinning.
@@ -321,14 +322,34 @@ class RealTransport:
                        capture_output=True, timeout=120, env={**os.environ, "GIT_TERMINAL_PROMPT": "0"})
 
     def upload_asset(self, tag: str, release: dict, name: str, path: str) -> int:
+        """Upload via curl — the proven GitHub write path in this repo.
+
+        urllib's POST of a ~30MB asset is repeatedly reset on this network
+        (WinError 10054, 2/2 real runs + alias attempts; curl on the same
+        endpoint returned 201 and verified by digest). Safe to retry: an
+        aborted upload creates nothing, and the caller re-verifies the
+        digest before any manifest flip.
+        """
         upload_url = release["upload_url"].split("{")[0]
         # Chinese product names must be percent-encoded for the URL.
-        status, resp = self.api(f"{upload_url}?name={self._urllib_parse.quote(name)}",
-                                data=open(path, "rb").read(),
-                                method="POST", content_type="application/octet-stream")
-        if status not in (200, 201) or not isinstance(resp, dict):
-            die(f"上传 {tag}/{name} 失败: {status} {resp}")
-        return int(resp.get("size") or 0)
+        url = f"{upload_url}?name={self._urllib_parse.quote(name)}"
+        want = os.path.getsize(path)
+        last = "curl 未执行"
+        for attempt in range(1, 4):
+            proc = subprocess.run(
+                ["curl", "-sSL", "--max-time", "900", "-o", os.devnull,
+                 "-w", "%{http_code}", "-X", "POST",
+                 "-H", f"Authorization: Bearer {self.token}",
+                 "-H", "Content-Type: application/octet-stream",
+                 "--data-binary", f"@{path}", url],
+                capture_output=True, timeout=960)
+            code = proc.stdout.decode(errors="replace").strip()[-3:]
+            last = (f"HTTP {code} curl exit={proc.returncode} "
+                    f"{proc.stderr.decode(errors='replace').strip()[:160]}")
+            if proc.returncode == 0 and code in ("200", "201"):
+                return want
+            time.sleep(3 * attempt)
+        die(f"上传 {tag}/{name} 失败（3 次重试后）: {last}")
 
     def asset_digest(self, tag: str, name: str) -> str | None:
         """GitHub-reported sha256 digest for an asset of this release."""
