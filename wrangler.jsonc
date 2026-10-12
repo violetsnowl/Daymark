@@ -1,0 +1,14 @@
+{
+  /* Cloudflare Workers static assets deployment for the browser build of the
+     app (app.daymark.top). The dashboard's "import a Git repository" flow runs
+     the build command from docs/WEB_VERSION_DEPLOY.md, then `npx wrangler
+     deploy`; this file tells wrangler what to publish. */
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "daymark-app",
+  // Set this to today's date
+  "compatibility_date": "2026-10-12",
+  "assets": {
+    "directory": "./apps/web/dist/",
+    "not_found_handling": "single-page-application",
+  },
+}

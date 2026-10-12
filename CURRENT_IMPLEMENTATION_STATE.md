@@ -669,4 +669,13 @@ Gate 实测（2026-09-29 11:18）：`pnpm format:check` / `pnpm lint` / `pnpm ty
 - **选项取舍（用户委托判断）**：排课表单七项 **全部保留、一项不删** —— `stage_label`（阶段）是 AI 导入课表时承接节次的字段（`course-import-chat-parser`：无钟点时保留「12-13节」进 stage_label），并在行展示里充当无时间时的前缀；`week_start/week_end`=第 X–Y 周、`classroom`=教室，均参与行摘要。删任何一项都会丢功能。
 - **新机制（PR-011）**：本机上行传 ~6MB 必被重置（`WinError 10054`，6/6 复现；限速、关 `Expect`、绕过代理均无效，同一端点偶发能过）→ `upload_asset` 改 **curl + 3 次退避重试**，仍失败自动 `upload_via_server`（SFTP 上行 → VPS 上 curl → `finally` 删除临时文件与鉴权头）；**信任边界不变**：中转后的 GitHub digest 仍由调用方比对，翻转前必须通过。
 - **史实（用户问询已核实）**：0.1.x 只剩 0.1.15 是**旧脚本的清理步骤**所致（`KEEP_VERSIONS = 2`：删除超出最近两版的版本化资产，不动线上引用与固定名别名），不是「被覆盖丢失」；源码提交全部仍在 main 历史里，但 ≤0.1.14 的安装包在 GitHub 与本机均已无存、不可恢复。**0.2.x 起不再清理同系列资产**（本轮 0.2.0/0.2.1/0.2.2 三版并存于 `v0.2.0`）。
-- **未决**：`AGENTS.md` 里「多 Release 策略 / 当前版本 0.2.1」两处口径已过期，但该文件属受保护的 agent 说明文件、写入被系统拦截，**待用户确认后由人工或授权更新**；PR-001/002/003/004/005 与 L-02/03/06 照旧。
+- **未决**：`AGENTS.md` 的过期口径已于 2026-10-12 经用户授权更新为系列模式（提交 `5aed0aa`）；PR-001/002/003/004/005 与 L-02/03/06 照旧。
+
+## 32. 课表导入后端热修（PR-012，2026-10-12，纯后端）
+
+- **触发**：新用户 `85e15ea5…ca3e6` 三连败（2 PDF + 1 截图，报「识别结果未能通过校验，请重试一次…」）。DB `course_import_jobs` 三条 `FAILED`（10-12 12:55:40 / 12:56:15 / 12:56:43 UTC，`committed_at` 全 null）；`/var/log/cm-api.log` 三处 `ZodError: Imported course names must be unique after normalization`——两次 PDF 都卡 `courses[6].name`（重试无效、与清晰度无关），图片卡 `courses[1].name`。
+- **根因**：模型单次返回把同一门课拆成两条，而 `mergeCoursePreviews()` 此前只在 `results.length > 1`（多批并行）时执行，单批原样放行 → `packages/contracts/src/course-import.ts:61` 的唯一性校验炸掉整单。**反证**：若合并跑过则同名必被并掉，不可能撞名。
+- **修复**：`course-import-chat-parser.ts` 改为单批同样走 `mergeCoursePreviews(results)`（同名并一门、课时段并集去重、老师取首个非空）+ 回归测试（单批同名两门 → 1 门 2 课时段且过 schema）。**纯后端**（`apps/web` 不含该 schema、客户端不跑这道校验）→ **不发 App 版本**。
+- **部署与验证**：`eca6b02` 推送 → 服务器 `git pull --ff-only`（HEAD=eca6b02，worktree 干净）→ `pnpm --filter @daymark/api build`（RC=0；lockfile 未变故未重装依赖）→ dist 已含新逻辑、旧条件消失 → `systemctl restart cm-api`（active、NRestarts=0）→ 本机与公网 `/api/v1/health` 均 200 → **在部署产物上实跑**：喂「单批返回同名两门」→ 合成 1 门 2 课时段、`courseImportParseResultSchema.parse` 通过 ✓。
+- **待用户验证**：让该用户重试同一份 `荣彦淞(2026-2027-1)课表.pdf`。撞名的具体课程名**无法回看**（服务器不存文件内容、失败也不进 `course_import_parse_cache`），要看需拿到该 PDF 本地复现。
+- **旁支（已记档）**：PR-013 课表识别偶发 `ProviderError: TIMEOUT`；PR-014 `notification_deliveries` 外键 23503（事项已删仍投递）。

@@ -4,7 +4,7 @@ import {
   isPermissionGranted,
   requestPermission,
 } from "@tauri-apps/plugin-notification";
-import { isAndroid } from "./apiBase.js";
+import { isAndroid, isTauri } from "./apiBase.js";
 import { useT } from "./i18n/index.js";
 
 /**
@@ -43,7 +43,9 @@ export function FirstLaunchGuide() {
     } catch {
       shown = true; // storage unreadable → never nag
     }
-    return shouldShowPermissionGuide(isAndroid(), shown);
+    /* Shell-only: a plain mobile browser passes the UA check but has none of
+       the settings pages this guide opens, so it must never appear there. */
+    return shouldShowPermissionGuide(isTauri() && isAndroid(), shown);
   });
   const [notify, setNotify] = useState<NotifyState>("checking");
 
