@@ -170,8 +170,10 @@ export class ChatCompletionsCourseImportParser implements CourseImportParser {
     const results = await Promise.all(
       batches.map((batch) => this.request(batch, input.sourceType === "PDF")),
     );
-    const merged =
-      results.length === 1 ? results[0] : mergeCoursePreviews(results);
+    // 合并在「单批」时同样必要：一次返回里把同一门课拆成两条（课表同一门课
+    // 分多行/多周段很常见）曾让唯一性校验整单失败——2026-10-12 新用户三次导入
+    // 全卡在 courses[i].name 撞名。同名并成一门、课时段取并集去重。
+    const merged = mergeCoursePreviews(results);
     // The rebuilt grid already knows which column every cell sat in; the
     // model's weekday is kept only when it agrees with that column or when
     // the grid cannot decide (name absent or spread over several columns).

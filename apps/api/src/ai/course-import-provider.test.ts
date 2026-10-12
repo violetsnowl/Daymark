@@ -46,6 +46,61 @@ function recorder(responses: (Response | Error)[]) {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status });
 
+it("merges same-named courses inside a single batch instead of failing validation", async () => {
+  const schedule = (weekday: number, start: string, end: string) => ({
+    weekday,
+    start_time: start,
+    end_time: end,
+    week_start: 1,
+    week_end: 16,
+    classroom: null,
+    stage_label: null,
+  });
+  const body = {
+    choices: [
+      {
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: JSON.stringify({
+            courses: [
+              {
+                name: "大学英语",
+                instructor: "王老师",
+                schedules: [schedule(1, "08:00", "09:40")],
+              },
+              {
+                name: "大学英语",
+                instructor: null,
+                schedules: [schedule(3, "10:00", "11:40")],
+              },
+            ],
+          }),
+        },
+      },
+    ],
+  };
+  const { calls, transport } = recorder([json(body)]);
+  const parser = new ChatCompletionsCourseImportParser(config, transport);
+  const preview = await parser.parse({
+    sourceType: "IMAGE",
+    fileName: "课表.png",
+    mediaType: "image/png",
+    contentBase64: Buffer.from("fixture").toString("base64"),
+  });
+  expect(calls).toHaveLength(1);
+  const courses = (preview as { courses: unknown[] }).courses;
+  expect(courses).toHaveLength(1);
+  expect(courses[0]).toMatchObject({ name: "大学英语", instructor: "王老师" });
+  expect((courses[0] as { schedules: unknown[] }).schedules).toHaveLength(2);
+  // 合并后必须能过唯一性校验（否则整单导入作废）
+  await expect(
+    import("@daymark/contracts").then((m) =>
+      m.courseImportParseResultSchema.parse(preview),
+    ),
+  ).resolves.toBeTruthy();
+});
+
 it("sends an image through the chat-completions structured output request", async () => {
   const { calls, transport } = recorder([json(successBody)]);
   const parser = new ChatCompletionsCourseImportParser(config, transport);
