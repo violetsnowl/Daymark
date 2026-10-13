@@ -8,6 +8,7 @@
 
 - PR-013 课表识别偶发 `ProviderError: TIMEOUT`（服务端日志 1 次）→ 观察：有 `withProviderRetry` 重试一层，超时上限与模型耗时待核（非用户报障，暂不阻断）
 - PR-014 服务端日志 2 条 `notification_deliveries` 外键失败（23503：`item_id` 不在 `items` 表）→ 通知投递引用了已被删除的事项，属独立缺陷，待定修法（删除事项时需同步清/跳过投递）
+- PR-015 邮箱/短信验证码**输错**时提示「验证码已过期」（误导）→ 根因（线上实测）：Supabase 对「错码 / 过期码 / 从未发过码」一律返回 `otp_expired`（"Token has expired or is invalid"），**服务端不可区分** → 修复：`auth.err.otpExpired` 文案统一为「验证码不正确或已过期，请重新获取。」（en 同步；**邮箱与短信共用同一错误映射，一处修两端**）；顺带补齐 Supabase 现行速率限制错误码映射（`over_email_send_rate_limit` / `over_sms_send_rate_limit` / `over_request_rate_limit`）。**已修复，待随下个版本发布；网页版随构建即时生效**
 
 ### PR-002 · 服务器带宽瓶颈（根因未除）
 

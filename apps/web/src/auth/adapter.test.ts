@@ -1027,7 +1027,7 @@ describe("OTP", () => {
       .verifyEmailOtp(EMAIL, EXPIRED_TOKEN)
       .catch((value: unknown) => value);
     expect(error).toBeInstanceOf(AuthUiError);
-    expect((error as Error).message).toBe("验证码已过期，请重新获取。");
+    expect((error as Error).message).toBe("验证码不正确或已过期，请重新获取。");
     expect((error as AuthUiError).code).toBe("OTP_EXPIRED");
   });
 
@@ -1051,6 +1051,17 @@ describe("OTP", () => {
       .sendPhoneOtp(PHONE)
       .catch((value: unknown) => value);
     expect((error as Error).message).toBe("短信发送过于频繁，请稍后再试。");
+    fake.forced.set("signInWithOtp", {
+      code: "over_email_send_rate_limit",
+      message: "rate",
+      status: 429,
+    });
+    const emailLimited = await adapter
+      .sendEmailOtp(EMAIL)
+      .catch((value: unknown) => value);
+    expect((emailLimited as Error).message).toBe(
+      "邮件发送过于频繁，请稍后再试。",
+    );
     fake.forced.set("signInWithOtp", {
       code: "500",
       message: "too many requests",

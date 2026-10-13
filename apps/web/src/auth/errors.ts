@@ -101,6 +101,11 @@ const BY_CODE: Record<string, (operation: AuthOperation) => string> = {
   SMS_SEND_RATE_LIMIT: () => "auth.err.smsRateLimit",
   EMAIL_RATE_LIMIT_EXCEEDED: () => "auth.err.emailRateLimit",
   OVERDUE_EMAIL_SEND_RATE_LIMIT: () => "auth.err.emailRateLimit",
+  // Current GoTrue codes (the `overdue_*` variants above are kept for
+  // older deployments; the live project returns the `over_*` family).
+  OVER_EMAIL_SEND_RATE_LIMIT: () => "auth.err.emailRateLimit",
+  OVER_SMS_SEND_RATE_LIMIT: () => "auth.err.smsRateLimit",
+  OVER_REQUEST_RATE_LIMIT: () => "auth.err.rateLimit",
   SIGNUP_DISABLED: () => "auth.err.signupDisabled",
   PROVIDER_DISABLED: () => "auth.err.providerDisabled",
   MANUAL_LINKING_DISABLED: () => "auth.err.manualLinkingDisabled",

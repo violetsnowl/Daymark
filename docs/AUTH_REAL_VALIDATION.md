@@ -71,6 +71,7 @@ ONE HUMAN
    - **2026-10-13 追记（邮件文案改哪里 · 常见找不到问题）**：邮件正文**不在仓库代码里**（`apps/api` 零邮件代码，全部邮件由 Supabase Auth + 163 SMTP 发送）。改文案去 **Dashboard → Authentication → Email Templates**（直链 `https://supabase.com/dashboard/project/xaqmzjhvewkrpnqaunwd/auth/templates`）：登录/注册验证码走 **"Magic link or OTP"** 页、重置密码走 **"Reset password"** 页、换绑邮箱走 **"Change email address"** 页。改完**即生效、无需发版**；**红线：正文必须保留 `{{ .Token }}`**（丢了邮件就没有验证码）。当前机制**全部为验证码式**（客户端只实现输码 `verifyOtp`），链接点击式未启用——桌面/安卓壳的 `emailRedirectTo` 是壳内 origin，系统浏览器打不开，链接式对这些端天然不可用。
 6. **Rate limits / CAPTCHA**
    - 邮件、短信发送频率限制保持开启（登录 UI 已按 60s 倒计时限制重发）
+   - **限额速查（2026-10-13 查证）**：Supabase 侧——自带邮局仅 2 封/时；**自定义 SMTP 启用后默认 30 封/时**（可在 Dashboard → Authentication → Rate Limits 修改，Management API 字段 `rate_limit_email_sent`），单地址重发间隔 60s；短信默认 30 条/时。163 侧（实际发信方）——官方 FAQ：免费邮箱**每日 300～400 封**（会员档 700–800 / 1300–1400），并另受反垃圾政策影响。
    - 如开启 CAPTCHA，需要 `signInWithOtp({ options: { captchaToken } })` 适配
 7. **密钥边界**
    - 浏览器只允许：`VITE_SUPABASE_URL`、`VITE_SUPABASE_PUBLISHABLE_KEY`

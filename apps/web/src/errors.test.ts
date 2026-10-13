@@ -115,7 +115,7 @@ it("resolves AuthUiError product copy from the active locale at access time", ()
   const error = toAuthUiError({ code: "otp_expired" }, "VERIFY_OTP");
   expect(error).toBeInstanceOf(AuthUiError);
   expect(error.messageKey).toBe("auth.err.otpExpired");
-  expect(error.message).toBe("验证码已过期，请重新获取。");
+  expect(error.message).toBe("验证码不正确或已过期，请重新获取。");
   writeStoredLocale("en-US");
   expect(error.message).toBe(getMessage("en-US", "auth.err.otpExpired"));
   writeStoredLocale("zh-CN");

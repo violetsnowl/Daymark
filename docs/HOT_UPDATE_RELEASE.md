@@ -69,6 +69,7 @@
 ## 5. 硬性约定（项目级）
 
 - 本地回归四件套 + Rust：`pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`（基线 **422 passed + 2 skipped**，2 skip=真实 PG 集成用例、不算通过）+ `src-tauri` 下 `cargo check` 0 警告，全 0 才可提交；**发布脚本改动另跑** `python scripts/test_publish_release.py`（37/37）。
+- **跑门控前保持 shell 干净**：root `.env` 的 `REAL_DATABASE_URL`（=生产库）一旦泄漏进环境，`pnpm test` 的 2 个真实 PG 集成用例会从 skip 转跑（设计自隔离 + auto-drop，已实测零残留；但常规门控应保持 skip——基线 422+2 的「2」就是它）；需要 `.env` 变量时用子 shell（`(set -a; . ./.env; set +a; <cmd>)`）。
 - 每轮改动 commit + push 中文提交信息；**密钥正则自检**（`sk-…/whsec…/PRIVATE` 出现次数=0）；`.env` 永不入库。
 - 永不向真实 Supabase 写演示/种子数据；验收先查真实数据库。
 - 不关闭任务栏 "CourseManager API (watchdog)" 窗口。
