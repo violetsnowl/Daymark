@@ -2,11 +2,11 @@
 
 > **口径说明（2026-10-09 对齐）**：文首「事实基准」是唯一现行口径，**覆盖下文一切历史快照**。§1–§7 保留开发期定稿原文供追溯，其中的「当前」「仍缺」「BLOCKED」只反映当时；§8 起是按日期的史实流水。与本文冲突时，以 **文首事实基准 + [`AGENTS.md`](AGENTS.md) + §25–§26** 为准。待修 bug 见 [`docs/POST_RELEASE_BUGS.md`](docs/POST_RELEASE_BUGS.md)。
 
-## 事实基准（现行，2026-10-13 v0.2.3 发布后）
+## 事实基准（现行，2026-10-13 v0.2.4 发布后）
 
 - **项目**：拾序 Daymark——面向学生的课程事务应用（Windows Tauri 2 + 安卓 APK + 云端 API；本地优先、登录后云同步）。代码/文件侧 `daymark`。
-- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0 / v0.2.1 / v0.2.2 / v0.2.3 均已发布**，2026-10-11～10-13；**网页版 app.daymark.top 已上线并验收**，2026-10-12）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
-- **产品/发布**：GitHub `violetsnowl/Daymark`；**系列 Release 策略**（2026-10-12 恢复 0.1.x 打法：0.2.x 每个版本并入 `v0.2.0`、**不新建 Tag**；Tag 只建不移），当前版本 **0.2.3**（系列 Tag `v0.2.0` → `e3d326dc`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
+- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0 / v0.2.1 / v0.2.2 / v0.2.3 / v0.2.4 均已发布**，2026-10-11～10-13；**网页版 app.daymark.top 已上线并验收**，2026-10-12）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
+- **产品/发布**：GitHub `violetsnowl/Daymark`；**系列 Release 策略**（2026-10-12 恢复 0.1.x 打法：0.2.x 每个版本并入 `v0.2.0`、**不新建 Tag**；Tag 只建不移），当前版本 **0.2.4**（系列 Tag `v0.2.0` → `e3d326dc`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
 - **门控基线**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check` 全 0；套件 **422 passed + 2 skipped**（2 skip=真实 PG 集成用例，不算通过）。
 - **DATE/DATETIME**：Item 增加 `start_date` / `occurrence_start_date` / `occurrence_end_date` / `due_date` / `time_zone`；RawCapture 增加 `captured_tz`。互斥不变量与行为见 `docs/ADR-010-date-datetime-precision.md` 与母稿 `22_NATURAL_LANGUAGE_TIME_SPEC.md`。
 - **外部 lane**：A–F 已全部 `VERIFIED REAL`；**007 迁移已于 2026-10-11 应用到生产库**（核验见 §29）。
@@ -713,3 +713,12 @@ Gate 实测（2026-09-29 11:18）：`pnpm format:check` / `pnpm lint` / `pnpm ty
 - **当前精确状态**：HEAD `6610757` 已推 `origin/main`、工作区干净（无未提交改动、无调试残留、无密钥误跟踪）；线上清单 = **0.2.3**（四平台完整）；PR-001 已移档；门控全绿：format / lint / typecheck 0，测试 **422 passed + 2 skipped**（domain 16 + application 66 + storage 50 + web 199 + api 91），`cargo check` 0 警告，发布脚本用例 **37/37**；0.2.3 产物归档 `E:\Daymark-QA\0.2.3\`（exe sha256 `f4615881…` 2,599,708 B + `.sig`；apk `c3698e8b…` 29,766,511 B）。
 - **未决 / 风险**：① 真实"版本号 +1"升级随下个正式版自然覆盖（鸡生蛋首跳仍存：≤0.2.2 装机装 0.2.3 时安装环节由旧代码执行）；② 失败态专项未做（不阻断）；③ 在册观察：PR-002（VPS 带宽）、PR-013（识别偶发超时）、PR-014（通知投递外键）；④ 演练用法与红线（勿发 versionCode 更高测试包）见 HOT_UPDATE_RELEASE.md §4。
 - **跨 agent 移交路径**：`AGENTS.md` → 本文（§34/35/36 = 本窗口三件）→ `docs/HOT_UPDATE_RELEASE.md`（发版 + 演练 SOP）→ `docs/POST_RELEASE_BUGS.md`（总账）。生产副作用（发版 / 改清单 / 部署）**仍需逐项授权**。
+
+## 37. v0.2.4 发布 + 第二窗口结项收尾（2026-10-13，跨 agent 交接点）
+
+- **本窗口完成**：邮件模板定位与品牌名更正（用户已在 Dashboard 改完）→ **PR-015 修复**（验证码输错提示误导：线上探针实证 Supabase 对错码/过期码/无码一律返回 `otp_expired`、**服务端不可区分** → 文案统一为「验证码不正确或已过期」，顺带补齐 `over_*` 速率限制错误码映射；`aac050e`）→ 用户网页版验收通过 → **正式发布 v0.2.4**（`b98e04f` 版本；exe `拾序_0.2.4_x64-setup.exe` 2,598,774 B + `.sig`、APK 29,766,511 B / `versionCode 2004`；并入系列 Release `v0.2.0`，未新建 Tag）→ 终检全过（清单 0.2.4；双端 Content-Length 与本地产物逐字一致；资产回读 0.2.0～0.2.4 **五版并存** + 双别名）。
+- **当前精确状态**：本提交已推 `origin/main`、工作区干净；线上清单 = **0.2.4**；门控（干净 env）：format / lint / typecheck 0、测试 **422 passed + 2 skipped**、`cargo check` 0 警告；0.2.4 产物归档 `E:\Daymark-QA\0.2.4\`（sha256：exe `c964f84f…`、apk `2bb7ed68…`）。
+- **本窗口新增防复发约定**：`HOT_UPDATE_RELEASE.md` §5「跑门控前保持 shell 干净」——root `.env` 的 `REAL_DATABASE_URL`（=生产库）一旦泄漏进环境，2 个真实 PG 集成用例会从 skip 转跑（设计自隔离 + auto-drop，本窗口实测一次、零残留已核实；常规门控必须保持 skip）；需要 `.env` 变量请用子 shell。
+- **首次真实"版本号 +1"升级路径就绪**：0.2.3 装机（新安装器）收到 0.2.4 提示 → 安装由新机制执行、`versionCode 2003→2004` 实变——真机可自然完成"鸡生蛋首跳的真实收尾"验证。
+- **未决 / 风险**：① 失败态专项仍未做（不阻断）；② 在册观察：PR-002（VPS 带宽）、PR-013（识别偶发超时）、PR-014（通知投递外键）。
+- **跨 agent 移交路径**：`AGENTS.md` → 本文（§34–§37 = 安装器修复、v0.2.3 发布收尾、v0.2.4 发布）→ `docs/HOT_UPDATE_RELEASE.md`（发版 + 演练 SOP + 踩坑速查）→ `docs/POST_RELEASE_BUGS.md`（总账）。生产副作用（发版 / 改清单 / 部署）**仍需逐项授权**。

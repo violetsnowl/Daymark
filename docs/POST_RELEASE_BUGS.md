@@ -8,7 +8,6 @@
 
 - PR-013 课表识别偶发 `ProviderError: TIMEOUT`（服务端日志 1 次）→ 观察：有 `withProviderRetry` 重试一层，超时上限与模型耗时待核（非用户报障，暂不阻断）
 - PR-014 服务端日志 2 条 `notification_deliveries` 外键失败（23503：`item_id` 不在 `items` 表）→ 通知投递引用了已被删除的事项，属独立缺陷，待定修法（删除事项时需同步清/跳过投递）
-- PR-015 邮箱/短信验证码**输错**时提示「验证码已过期」（误导）→ 根因（线上实测）：Supabase 对「错码 / 过期码 / 从未发过码」一律返回 `otp_expired`（"Token has expired or is invalid"），**服务端不可区分** → 修复：`auth.err.otpExpired` 文案统一为「验证码不正确或已过期，请重新获取。」（en 同步；**邮箱与短信共用同一错误映射，一处修两端**）；顺带补齐 Supabase 现行速率限制错误码映射（`over_email_send_rate_limit` / `over_sms_send_rate_limit` / `over_request_rate_limit`）。**已修复，待随下个版本发布；网页版随构建即时生效**
 
 ### PR-002 · 服务器带宽瓶颈（根因未除）
 
@@ -85,3 +84,4 @@
 - PR-012 新用户课表导入三连败（2 PDF+1 图片，报「识别结果未能通过校验」）→ 根因：单批返回里同名课程未合并就撞唯一性校验（`mergeCoursePreviews` 此前只在多批时跑）→ 改为单批同样合并（同名并一门、课时段取并集去重）+ 回归测试；**纯后端，2026-10-12 已部署 cm-api 并在部署产物上实测通过**（无需发 App 版本）
 - L-06 官网域名未启用 → 已上线：daymark.top（www → 301）+ 下载页 /download/（独立仓库，CF Workers 托管）；app.daymark.top 网页版同日上线并用户验收通过（2026-10-12，详见 docs/WEB_VERSION_DEPLOY.md）
 - PR-001 更新安装页被 MT管理器/WPS 接住（多轮 Intent 策略修补无效）→ 根因：`ACTION_VIEW + APK MIME` 走 Intent 解析，第三方 VIEW 处理器天然可抢占（FLAG_SYSTEM 枚举拦不住）→ 安装环节整体改为**系统 PackageInstaller 会话**（commit → `STATUS_PENDING_USER_ACTION` → 系统自带确认界面，无解析步骤）+ 装前包名/签名校验 + 授权返回自动续装（**v0.2.3**，真机两轮实测 + 正式版自行执行全链复测通过 2026-10-13；根因与验证见 CURRENT_IMPLEMENTATION_STATE §34/§35）
+- PR-015 邮箱/短信验证码输错时提示「已过期」（误导）→ 根因（线上实测）：Supabase 对错码/过期码/无码一律返回 `otp_expired`，**服务端不可区分** → 文案统一为「验证码不正确或已过期，请重新获取。」（邮箱/短信共用映射、一处修两端）；顺带补齐 `over_*` 速率限制错误码映射（**v0.2.4**，2026-10-13 发布；根因实证与邮件/短信限额速查见 docs/AUTH_REAL_VALIDATION.md）
