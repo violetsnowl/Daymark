@@ -2,10 +2,10 @@
 
 > **口径说明（2026-10-09 对齐）**：文首「事实基准」是唯一现行口径，**覆盖下文一切历史快照**。§1–§7 保留开发期定稿原文供追溯，其中的「当前」「仍缺」「BLOCKED」只反映当时；§8 起是按日期的史实流水。与本文冲突时，以 **文首事实基准 + [`AGENTS.md`](AGENTS.md) + §25–§26** 为准。待修 bug 见 [`docs/POST_RELEASE_BUGS.md`](docs/POST_RELEASE_BUGS.md)。
 
-## 事实基准（现行，2026-10-11 v0.2.1 发布后）
+## 事实基准（现行，2026-10-12 v0.2.2 发布后 + 网页版上线）
 
 - **项目**：拾序 Daymark——面向学生的课程事务应用（Windows Tauri 2 + 安卓 APK + 云端 API；本地优先、登录后云同步）。代码/文件侧 `daymark`。
-- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0、v0.2.1 均已发布**，2026-10-11）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
+- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0 / v0.2.1 / v0.2.2 均已发布**，2026-10-11～10-12；**网页版 app.daymark.top 已上线并验收**，2026-10-12）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
 - **产品/发布**：GitHub `violetsnowl/Daymark`；**系列 Release 策略**（2026-10-12 恢复 0.1.x 打法：0.2.x 每个版本并入 `v0.2.0`、**不新建 Tag**；Tag 只建不移），当前版本 **0.2.2**（系列 Tag `v0.2.0` → `e3d326dc`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
 - **门控基线**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check` 全 0；套件 **411 passed + 2 skipped**（2 skip=真实 PG 集成用例，不算通过）。
 - **DATE/DATETIME**：Item 增加 `start_date` / `occurrence_start_date` / `occurrence_end_date` / `due_date` / `time_zone`；RawCapture 增加 `captured_tz`。互斥不变量与行为见 `docs/ADR-010-date-datetime-precision.md` 与母稿 `22_NATURAL_LANGUAGE_TIME_SPEC.md`。
@@ -679,3 +679,12 @@ Gate 实测（2026-09-29 11:18）：`pnpm format:check` / `pnpm lint` / `pnpm ty
 - **部署与验证**：`eca6b02` 推送 → 服务器 `git pull --ff-only`（HEAD=eca6b02，worktree 干净）→ `pnpm --filter @daymark/api build`（RC=0；lockfile 未变故未重装依赖）→ dist 已含新逻辑、旧条件消失 → `systemctl restart cm-api`（active、NRestarts=0）→ 本机与公网 `/api/v1/health` 均 200 → **在部署产物上实跑**：喂「单批返回同名两门」→ 合成 1 门 2 课时段、`courseImportParseResultSchema.parse` 通过 ✓。
 - **待用户验证**：让该用户重试同一份 `荣彦淞(2026-2027-1)课表.pdf`。撞名的具体课程名**无法回看**（服务器不存文件内容、失败也不进 `course_import_parse_cache`），要看需拿到该 PDF 本地复现。
 - **旁支（已记档）**：PR-013 课表识别偶发 `ProviderError: TIMEOUT`；PR-014 `notification_deliveries` 外键 23503（事项已删仍投递）。
+
+## 33. 网页版（app.daymark.top）上线与验收（2026-10-12，跨 agent 交接点）
+
+- **进度（全部完成）**：本仓库静态产物上云——CF Workers 项目 `daymark-app` 自本仓库自动构建（根级 `wrangler.jsonc`）→ `app.daymark.top` 从「→ 下载页 302」改绑为网页版本体 → 构建变量三件套补配 → **用户登录 + 同步验收通过，网页版正式收货**。详见 `docs/WEB_VERSION_DEPLOY.md`；官网下载页「进入网页版」直达。
+- **前置代码改动**：`FirstLaunchGuide` 显示门由 `isAndroid()` 收紧为 `isTauri() && isAndroid()`（安卓手机浏览器会误弹壳专用首启引导，三个设置按钮点了没反应）；纯函数门语义不变、单测保持。
+- **构建变量三件套**：Build command 内 `VITE_API_BASE_URL=https://api.daymark.top` + CF 项目 Settings → Build 的 `VITE_SUPABASE_URL` / `VITE_SUPABASE_PUBLISHABLE_KEY`（值取自根 `.env`）。缺 Supabase 两条 = 线上账号层降级「仅本机」、账户面板无登录口（首构曾遗漏，已补配并验证）。
+- **验收证据**：预览站首构全绿（零控制台报错、本地记录闭环 raw_captures=1 / items=1 / outbox_mutations=4、CORS 直连 health 200、安卓 UA 不误弹）；`app.daymark.top` 200 直出；用户登录成功、数据同步。
+- **已知边界与待定**：浏览器版提醒仅页面打开时有效（浏览器限制，非缺陷）；多标签页并发同步（双同步器）专项未验；`navigator.storage.persist()` 持久化申请（可选）。壳仍是完整体验。
+- **CF 陷阱**：子域绑 Custom Domain 弹窗报 `No zones match <host>` 属抽风——勿照提示添加域名；绕法 = 弹窗内先选 zone + 子域填 `app`，或 Route（占位 A `192.0.2.1` 橙云）。
