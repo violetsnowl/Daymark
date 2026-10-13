@@ -83,4 +83,4 @@
 - PR-011 发布脚本 30MB 资产本机上传必被重置（10054，6/6 复现）→ `upload_asset` 改 curl + 3 次退避重试，仍失败自动走服务器中转（SFTP 上行 → VPS curl），digest 校验边界不变（v0.2.2 发布过程中修复）
 - PR-012 新用户课表导入三连败（2 PDF+1 图片，报「识别结果未能通过校验」）→ 根因：单批返回里同名课程未合并就撞唯一性校验（`mergeCoursePreviews` 此前只在多批时跑）→ 改为单批同样合并（同名并一门、课时段取并集去重）+ 回归测试；**纯后端，2026-10-12 已部署 cm-api 并在部署产物上实测通过**（无需发 App 版本）
 - L-06 官网域名未启用 → 已上线：daymark.top（www → 301）+ 下载页 /download/（独立仓库，CF Workers 托管）；app.daymark.top 网页版同日上线并用户验收通过（2026-10-12，详见 docs/WEB_VERSION_DEPLOY.md）
-- PR-001 更新安装页被 MT管理器/WPS 接住（多轮 Intent 策略修补无效）→ 根因：`ACTION_VIEW + APK MIME` 走 Intent 解析，第三方 VIEW 处理器天然可抢占（FLAG_SYSTEM 枚举拦不住）→ 安装环节整体改为**系统 PackageInstaller 会话**（commit → `STATUS_PENDING_USER_ACTION` → 系统自带确认界面，无解析步骤）+ 装前包名/签名校验 + 授权返回自动续装（**v0.2.3**，真机两轮实测通过 2026-10-13；根因与验证见 CURRENT_IMPLEMENTATION_STATE §34/§35）
+- PR-001 更新安装页被 MT管理器/WPS 接住（多轮 Intent 策略修补无效）→ 根因：`ACTION_VIEW + APK MIME` 走 Intent 解析，第三方 VIEW 处理器天然可抢占（FLAG_SYSTEM 枚举拦不住）→ 安装环节整体改为**系统 PackageInstaller 会话**（commit → `STATUS_PENDING_USER_ACTION` → 系统自带确认界面，无解析步骤）+ 装前包名/签名校验 + 授权返回自动续装（**v0.2.3**，真机两轮实测 + 正式版自行执行全链复测通过 2026-10-13；根因与验证见 CURRENT_IMPLEMENTATION_STATE §34/§35）
