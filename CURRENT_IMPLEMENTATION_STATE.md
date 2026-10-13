@@ -2,12 +2,12 @@
 
 > **口径说明（2026-10-09 对齐）**：文首「事实基准」是唯一现行口径，**覆盖下文一切历史快照**。§1–§7 保留开发期定稿原文供追溯，其中的「当前」「仍缺」「BLOCKED」只反映当时；§8 起是按日期的史实流水。与本文冲突时，以 **文首事实基准 + [`AGENTS.md`](AGENTS.md) + §25–§26** 为准。待修 bug 见 [`docs/POST_RELEASE_BUGS.md`](docs/POST_RELEASE_BUGS.md)。
 
-## 事实基准（现行，2026-10-12 v0.2.2 发布后 + 网页版上线）
+## 事实基准（现行，2026-10-13 v0.2.3 发布后）
 
 - **项目**：拾序 Daymark——面向学生的课程事务应用（Windows Tauri 2 + 安卓 APK + 云端 API；本地优先、登录后云同步）。代码/文件侧 `daymark`。
-- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0 / v0.2.1 / v0.2.2 均已发布**，2026-10-11～10-12；**网页版 app.daymark.top 已上线并验收**，2026-10-12）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
-- **产品/发布**：GitHub `violetsnowl/Daymark`；**系列 Release 策略**（2026-10-12 恢复 0.1.x 打法：0.2.x 每个版本并入 `v0.2.0`、**不新建 Tag**；Tag 只建不移），当前版本 **0.2.2**（系列 Tag `v0.2.0` → `e3d326dc`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
-- **门控基线**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check` 全 0；套件 **411 passed + 2 skipped**（2 skip=真实 PG 集成用例，不算通过）。
+- **当前阶段**：**发布后维护更新阶段**（开发阶段 2026-10-08 结束；**v0.2.0 / v0.2.1 / v0.2.2 / v0.2.3 均已发布**，2026-10-11～10-13；**网页版 app.daymark.top 已上线并验收**，2026-10-12）。工作模式 = 发现/修复 bug → 小步发版 → 记档。
+- **产品/发布**：GitHub `violetsnowl/Daymark`；**系列 Release 策略**（2026-10-12 恢复 0.1.x 打法：0.2.x 每个版本并入 `v0.2.0`、**不新建 Tag**；Tag 只建不移），当前版本 **0.2.3**（系列 Tag `v0.2.0` → `e3d326dc`）；见 [`docs/HOT_UPDATE_RELEASE.md`](docs/HOT_UPDATE_RELEASE.md)。
+- **门控基线**：`pnpm format:check` / `lint` / `typecheck` / `test` + `src-tauri` `cargo check` 全 0；套件 **422 passed + 2 skipped**（2 skip=真实 PG 集成用例，不算通过）。
 - **DATE/DATETIME**：Item 增加 `start_date` / `occurrence_start_date` / `occurrence_end_date` / `due_date` / `time_zone`；RawCapture 增加 `captured_tz`。互斥不变量与行为见 `docs/ADR-010-date-datetime-precision.md` 与母稿 `22_NATURAL_LANGUAGE_TIME_SPEC.md`。
 - **外部 lane**：A–F 已全部 `VERIFIED REAL`；**007 迁移已于 2026-10-11 应用到生产库**（核验见 §29）。
 - **数据安全红线**：Dexie 库名 `"course-manager"` 与 `course_manager_device_id` 是本机/设备持久化键，**改名工程永不得触碰**。
@@ -696,5 +696,13 @@ Gate 实测（2026-09-29 11:18）：`pnpm format:check` / `pnpm lint` / `pnpm ty
 - **配套**：装前校验 = 体积下限 + ZIP 魔数 + **包名 + 签名 SHA-256 与当前应用一致**；`canRequestPackageInstalls()` 未授权 → 打开 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`，`Plugin.onResume` 检测到授权后**自动续装**（不丢包、不误报）；web `updateService`：安装标记由**启动时版本核对统一治理**（`android_update_ready_state`）——授权、取消、失败都不丢包（取消后重试免重下），安装成功或文件失效后清除，不误报成功、不留死标记。
 - **行为边界（如实）**：新机制下 MIUI 若弹自己的安装器 UI，那是系统安装器（角色持有者），不是第三方中介；会话失败**不静默回退**旧挑选逻辑（已删除），错误明确上报且保留安装包。**鸡生蛋**：0.2.2 → 下一版的首跳仍由 0.2.2 旧代码执行安装环节；从再下一版起走新机制，被接住则手动装一次破局。
 - **验证**：门控全 0（format:check/lint/typecheck/build；测试 **422 passed + 2 skipped**，含新增 `updateService.test.ts` 10 例；`cargo check` 0 警告）；Android release 构建 `BUILD_EXIT=0`；**合并后 Manifest 与最终 APK 均核验**（receiver/权限/无 queries；APK sha256 `c6c418e4…`，29,766,511 B，versionCode 2002，CN=Daymark 签名）。**未触发正式发布。**
-- **真机进展（2026-10-13）**：**两轮实测通过**——未授权 → 自动跳「安装未知应用」设置页 → 授权返回自动续装 → 系统安装器（MIUI）拉起、无第三方 → 重复安装正常、更新后数据完整；MT管理器/WPS 中介问题确认解除。**平台行为**：MIUI/HyperOS 在每次安装前弹系统自带「本次允许」确认（系统安全层，非第三方介入，非缺陷）。**待续测**：取消路径/失败态专项未做；跨版本成功升级随下个正式版自然覆盖。Kotlin 侧无测试基建，以构建 + 真机为准。
+- **真机进展（2026-10-13）**：**两轮实测通过**——未授权 → 自动跳「安装未知应用」设置页 → 授权返回自动续装 → 系统安装器（MIUI）拉起、无第三方 → 重复安装正常、更新后数据完整；MT管理器/WPS 中介问题确认解除；**取消路径已补测通过（用户回执）**。**平台行为**：MIUI/HyperOS 在每次安装前弹系统自带「本次允许」确认（系统安全层，非第三方介入，非缺陷）。**待续测**：失败态专项未做；跨版本成功升级随 0.2.3 发布自然覆盖。Kotlin 侧无测试基建，以构建 + 真机为准。
 - **测试布置注意**：抬清单测试时下载的产物 = 线上正式资产（旧代码）——装完会把"测试包（新代码）"换回正式包，第二轮又走旧逻辑（首轮实测踩到）；要连续验证新机制，需让清单的下载地址指向新代码包。
+
+## 35. v0.2.3 发布：安卓安装器根因修复上线（2026-10-13，跨 agent 交接点）
+
+- **进度（全部完成）**：PR-001 根因修复（PackageInstaller 会话安装，详见 §34）真机两轮实测通过 + 取消补测通过后正式发布——版本 0.2.2 → 0.2.3；双端构建（exe `拾序_0.2.3_x64-setup.exe` 2,599,708 B + `.sig`；APK 29,766,511 B，`versionName 0.2.3` / **`versionCode 2003`**）→ **并入系列 Release `v0.2.0`（未新建 Tag）**；清单原子翻转 0.2.3；GitHub/VPS 固定名别名刷新并校验；Release 正文新增 `## 0.2.3（当前）` 一节 → 终检全过（清单 200；双端 Content-Length 与本地产物逐字一致；回读资产 0.2.0～0.2.3 四版 + 固定名别名齐备）。
+- **更新卡文案（白话）**：「更新安装更可靠了：修复了部分手机上安装更新时被其它应用接管的毛病，现在统一由系统安装器完成安装。」正文含首跳提示（旧版本装这一版时可能仍是旧方式；装上后每次更新都走新机制）。
+- **发布前门控**：format:check / lint / typecheck / build 全 0；测试 **422 passed + 2 skipped**；`cargo check` 0 警告；发布脚本用例 **37/37**；工作区干净。
+- **鸡生蛋现状**：0.2.2 及更旧版本的用户，装 0.2.3 时安装环节仍由旧代码执行（可能被第三方接住/出现选择框，手动完成即可）；从装上 0.2.3 起，之后的每次更新走新机制。桌面端照旧走官方插件（验签含版本绑定）。
+- **发布后待办**：无强制项；PR-001 已移档（见 POST_RELEASE_BUGS 已修复存档）。
