@@ -17,7 +17,7 @@
    - apk：补丁版 `E:\devtools\tauri-cli-src\tauri-cli-2.12.1\target\release\cargo-tauri.exe android build --ci --apk`（四坑见 [`ANDROID_APK_BUILD.md`](ANDROID_APK_BUILD.md)）
 3. **一键发布**：`uv run --with paramiko python scripts/publish_release.py --notes "<更新卡文案（白话）>" --body "<Release 正文（白话）>"`
    = 验签（缺 `.sig` 自动补签）→ **确保 Tag/Release**（`v<版本>` 不存在则创建且永不移动；已存在但指向别的提交=失败关闭）→ **版本化资产暂存 + 内容校验**（SHA-256 确认一致才复用，线上引用资产绝不覆盖）→ 逐 URL 大小校验（无法确认即停）→ **清单原子翻转放最后**（SFTP posix_rename 单翻转点，失败关闭、旧清单保持可读；翻转异常先回读三分类）→ **更新正文（`merge_body` 按小版本分节合并：新版插最前打「（当前）」、自带该版本 exe/apk 下载链接、历史小节整体保留、重跑同版本原地替换）** → **刷新固定名别名**（上传后校验；失败=报「部分完成」exit 2 + 恢复路径，不报成功）→ **回读核对**（预期资产齐备；未预期资产只报告不自动删除——多 Release 模式永不清理历史版本资产，旧版可用性优先）。**翻转前任何失败 = 线上零变化，直接重跑即可。**
-4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`。**保留策略（真实行为）**：同系列各版本资产在**同一个系列 Release 下长期保留**（`v0.2.0` 下 0.2.0 / 0.2.1 / 0.2.2 并存），历史 Release（含 `v0.1.0`）永不自动清理、永不修改——旧版下载与回退可用性优先。**Release 正文按小版本分节**（`# 拾序 Daymark 系列更新记录`，`---` 分隔），每节带该版本自己的下载链接；GitHub 的资产列表本身是扁平的、平台不支持分组，分节正文即各版本的入口。
+4. **终检**：`curl -s https://api.daymark.top/update/latest.json`（version/URL/notes）+ 下载 `Content-Length` 与本地产物一致 + Release 资产回读 = **每版本两件**（`daymark_<ver>_x64-setup.exe`、`app-universal-release-<ver>.apk`）**+ 固定名别名** `app-universal-release.apk`。**保留策略（真实行为）**：同系列各版本资产在**同一个系列 Release 下长期保留**（`v0.2.0` 下 0.2.0 / 0.2.1 / 0.2.2 / 0.2.3 并存），历史 Release（含 `v0.1.0`）永不自动清理、永不修改——旧版下载与回退可用性优先。**Release 正文按小版本分节**（`# 拾序 Daymark 系列更新记录`，`---` 分隔），每节带该版本自己的下载链接；GitHub 的资产列表本身是扁平的、平台不支持分组，分节正文即各版本的入口。
 
 ## 2. 关键位置
 
@@ -50,15 +50,25 @@
 | `COLUMN_TOTAL_BYTES_*` 编译不过                                   | 常量名记错                                                                                       | 真名 `COLUMN_TOTAL_SIZE_BYTES`（javap android.jar 实证）                                                                                                                                                                                            |
 | 桌面双击快捷方式无限开新窗                                        | 无单实例锁                                                                                       | `tauri-plugin-single-instance`（桌面 cfg 门控，安卓无此插件）                                                                                                                                                                                       |
 | 安卓 rustBuild 报 `Creation symbolic link is not allowed`         | 标准用户无开发者模式；且 `BuildTask` 走 `pnpm tauri` 可能落到**未打补丁**的 npm CLI              | ① 补丁版 `cargo-mobile2` 对 `TargetStyle::File` 一律 `fs::copy`；② `gen/android/.../BuildTask.kt` **直连** `cargo-tauri.exe`，勿走 `pnpm tauri`                                                                                                     |
+| 安装前系统弹「本次允许」确认                                      | MIUI/HyperOS 系统自带安全层（每装必弹、无“永久允许”选项），非第三方中介                          | 正常点允许即可；**勿当 bug 修**（记录见 CURRENT_IMPLEMENTATION_STATE §34）                                                                                                                                                                          |
 
 ## 4. 空包测试法（临时抬清单验证更新链）
 
-改服务器 `latest.json` 的 `version` 字段抬一位（如 0.1.9→0.1.10）→ 真机点卡实测 → **验完必须改回**。
-注意：桌面端会因版本绑定**正确拒绝**（别点）；安卓端不验此绑定，可完整走通。历史空包轮：0.1.10、0.1.11（后均转正）。
+**现行 SOP（2026-10-13 v0.2.3 演练定型，实测通过）**：
+
+1. **备份**：`cp /opt/daymark/update/latest.json /tmp/daymark-latest.json.bak`，记下 sha256。
+2. **编辑**（python3 改 JSON）：`version` 抬到下一版号（如 0.2.3→0.2.4）；`notes` 换成演练文案（写明“测试包、装后版本与功能不变、数据不受影响”）；**删掉 `platforms.windows-x86_64` 条目**——桌面 check 会因缺平台报错、被 App 静默吞掉（`console.error` 而已）→ 桌面端零打扰；保留该条目的话桌面会收到假更新卡。
+3. **下载地址指向既有官方资产**（不新建包）：实体=当前正式版、版本=假新版——装完版本不变、无版本号污染、未来升级路径不受影响。**红线：勿发 versionCode 更高的测试包**，否则真机被后续正式版 `INSTALL_FAILED_VERSION_DOWNGRADE` 卡死。
+4. **公网回读核验**（version / notes / platforms 三项）→ 真机重开 App 即见卡（端上 `fetch(..., {cache:"no-store"})`，清单无缓存）。
+5. **测完逐字还原**：`cp` 备份回去 + `sha256sum` 核对与原值一致 + 删备份 + 回读确认。
+
+**预期内现象（勿误判）**：① 装完后 App 仍会提示“有新版”——清单还挂着假版本，直到还原；② “已下载待装”标记会在下次启动被自动清掉——标记只在“包内版本 > 当前版本”时保留（`reconcileReadyMarker`），同版本实体包属该规则的自然结果；真跨版本更新仍保留、取消免重下。
+
+历史空包轮：0.1.10、0.1.11（转正）；0.2.9（0.2.2 期间）；0.2.4 演练（0.2.3 期间，正式版自行执行全链通过，2026-10-13）。旧做法（只抬 version、不动 platforms）：桌面端会收到假卡、点安装被“验签含版本绑定”正确拒绝——已被上面的“删 windows 条目”取代。
 
 ## 5. 硬性约定（项目级）
 
-- 本地回归四件套 + Rust：`pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`（基线 **304+1**）+ `src-tauri` 下 `cargo check` 0 警告，全 0 才可提交。
+- 本地回归四件套 + Rust：`pnpm format:check && pnpm lint && pnpm typecheck && pnpm test`（基线 **422 passed + 2 skipped**，2 skip=真实 PG 集成用例、不算通过）+ `src-tauri` 下 `cargo check` 0 警告，全 0 才可提交；**发布脚本改动另跑** `python scripts/test_publish_release.py`（37/37）。
 - 每轮改动 commit + push 中文提交信息；**密钥正则自检**（`sk-…/whsec…/PRIVATE` 出现次数=0）；`.env` 永不入库。
 - 永不向真实 Supabase 写演示/种子数据；验收先查真实数据库。
 - 不关闭任务栏 "CourseManager API (watchdog)" 窗口。
