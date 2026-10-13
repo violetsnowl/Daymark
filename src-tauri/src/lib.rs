@@ -66,17 +66,20 @@ fn android_query_update(app: tauri::AppHandle, id: String) -> Result<serde_json:
     }
 }
 
-/// Open the system installer for the already-downloaded update package
-/// (invoked from the "download complete" notification tap).
+/// Run the system PackageInstaller for the already-downloaded update
+/// package (invoked from the "download complete" notification tap or the
+/// in-app dialog). Returns {"outcome": "installing" | "permission"} —
+/// "permission" means the 安装未知应用 page was opened and the install
+/// continues automatically when the user returns.
 #[tauri::command]
-fn android_install_update(app: tauri::AppHandle) -> Result<(), String> {
+fn android_install_update(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
     {
         let mobile = app.state::<crate::daymark_mobile::DaymarkMobile<tauri::Wry>>();
         mobile
             .0
-            .run_mobile_plugin::<()>("openUpdateInstaller", ())
-            .map_err(|e| format!("调起安装器失败: {e}"))
+            .run_mobile_plugin::<serde_json::Value>("openUpdateInstaller", ())
+            .map_err(|e| format!("调起安装失败: {e}"))
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -85,11 +88,26 @@ fn android_install_update(app: tauri::AppHandle) -> Result<(), String> {
     }
 }
 
-/// Android-only APK hot-update: the official updater plugin's mobile
-/// `install_inner` is a no-op (verified in tauri-plugin-updater 2.13.2
-/// source), so the shell downloads the APK into the app cache (path handed
-/// over by JS via the path plugin) and hands it to the system package
-/// installer through a FileProvider content URI.
+/// State of the downloaded update package ({fileExists, fileVersion?}),
+/// used by the web side to reconcile the "update ready" marker on launch
+/// (a stale marker — file gone or already installed — is dropped).
+#[tauri::command]
+fn android_update_ready_state(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    #[cfg(target_os = "android")]
+    {
+        let mobile = app.state::<crate::daymark_mobile::DaymarkMobile<tauri::Wry>>();
+        mobile
+            .0
+            .run_mobile_plugin::<serde_json::Value>("updateReadyState", ())
+            .map_err(|e| format!("读取更新包状态失败: {e}"))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = &app;
+        Err("仅安卓提供".to_string())
+    }
+}
+
 /// First-launch permission guidance: open the system settings surface the
 /// named permission lives on (no OEM API exposes these in-process; each
 /// target is a plain `am start` against a standard Settings action).
@@ -113,12 +131,17 @@ fn android_open_settings(app: tauri::AppHandle, kind: String) -> Result<(), Stri
     }
 }
 
+/// Android-only APK hot-update fallback: the official updater plugin's
+/// mobile `install_inner` is a no-op (verified in tauri-plugin-updater
+/// 2.13.2 source), so when the system DownloadManager cannot take the job
+/// the shell downloads the APK itself (JS hands over a cache path) and
+/// installs it via the Kotlin plugin's PackageInstaller session.
 #[tauri::command]
 async fn android_install_apk(
     app: tauri::AppHandle,
     url: String,
     dest_path: String,
-) -> Result<(), String> {
+) -> Result<serde_json::Value, String> {
     #[cfg(target_os = "android")]
     {
         let resp = reqwest::get(&url)
@@ -136,17 +159,17 @@ async fn android_install_apk(
             let _ = std::fs::create_dir_all(parent);
         }
         std::fs::write(dest, &bytes).map_err(|e| format!("写入缓存失败: {e}"))?;
-        // Android 14+ blocks `am start` from app processes — hand the
-        // file to the Kotlin plugin, which fires the installer Intent.
+        // The install itself runs inside the Kotlin plugin through the
+        // system PackageInstaller (session) API — no ACTION_VIEW, so no
+        // third-party app can claim the APK.
         let mobile = app.state::<crate::daymark_mobile::DaymarkMobile<tauri::Wry>>();
         mobile
             .0
-            .run_mobile_plugin::<()>(
+            .run_mobile_plugin::<serde_json::Value>(
                 "openApkInstaller",
                 serde_json::json!({ "destPath": dest_path }),
             )
-            .map_err(|e| format!("调起安装器失败: {e}"))?;
-        Ok(())
+            .map_err(|e| format!("调起安装失败: {e}"))
     }
     #[cfg(not(target_os = "android"))]
     {
@@ -184,6 +207,7 @@ pub fn run() {
             android_start_update,
             android_query_update,
             android_install_update,
+            android_update_ready_state,
         ])
         .setup(|app| {
             #[cfg(not(mobile))]

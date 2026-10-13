@@ -8,15 +8,6 @@
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />
 
-    <!-- Package visibility (Android 11+): lets resolveActivity() find the
-         system installer for APK VIEW intents. -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:mimeType="application/vnd.android.package.archive" />
-        </intent>
-    </queries>
-
     <application
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
@@ -36,6 +27,14 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Receives the system PackageInstaller session result and
+             launches the system's own install-confirm UI
+             (STATUS_PENDING_USER_ACTION → EXTRA_INTENT). Not exported:
+             the session PendingIntent is sent with this app's identity. -->
+        <receiver
+            android:name=".DaymarkInstallReceiver"
+            android:exported="false" />
 
         <provider
           android:name="androidx.core.content.FileProvider"

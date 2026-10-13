@@ -15,6 +15,8 @@ export const appZh: MessageTree = {
   updateReadyTitle: "更新已下载",
   updateReadyBody: "新版本已下载完成",
   updateReadyHint: "点“立即安装”进入系统安装页。",
+  updatePermissionHint:
+    "已打开系统设置：请允许「安装未知应用」，返回后会自动继续安装。",
   installNow: "立即安装",
   offlineTitle: "当前离线",
   offlineBody: "新记录会先保存在本机，联网后继续同步。",
@@ -58,6 +60,8 @@ export const appEn: MessageTree = {
   updateReadyTitle: "Update downloaded",
   updateReadyBody: "The new version is ready",
   updateReadyHint: "Tap Install now to open the system installer.",
+  updatePermissionHint:
+    "Settings opened — allow “Install unknown apps”, then come back: the install continues automatically.",
   installNow: "Install now",
   offlineTitle: "Offline",
   offlineBody:

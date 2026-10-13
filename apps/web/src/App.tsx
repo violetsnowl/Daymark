@@ -91,7 +91,11 @@ import {
 } from "./updateService.js";
 import { UpdateDialog } from "./UpdateDialog.js";
 import { FirstLaunchGuide } from "./FirstLaunchGuide.js";
-import { openReadyUpdate, UPDATE_READY_KEY } from "./updateService.js";
+import {
+  openReadyUpdate,
+  reconcileReadyMarker,
+  UPDATE_READY_KEY,
+} from "./updateService.js";
 import { toUserMessage } from "./errors.js";
 import type { AiTaskKind } from "./aiTaskStore.js";
 import { apiBase, isAndroid, isTauri } from "./apiBase.js";
@@ -158,6 +162,7 @@ export function App() {
     null,
   );
   const [updateReady, setUpdateReady] = useState(false);
+  const [updatePermissionHint, setUpdatePermissionHint] = useState(false);
   const [syncIssues, setSyncIssues] = useState<ActionRequiredSyncIssue[]>([]);
   // Bumped by the account panel's 查看并处理 so the repair panel opens itself.
   const [repairOpenSignal, setRepairOpenSignal] = useState(0);
@@ -299,16 +304,28 @@ export function App() {
   // A finished update download (Android): surface an in-app dialog on the
   // event (foreground completion) or on next launch (the marker survives a
   // failed/dismissed notification tap — a finished download is never lost).
+  // The launch-time marker is reconciled against the downloaded package
+  // first, so a stale marker (file gone / already installed) is dropped
+  // instead of showing a dead install dialog.
   useEffect(() => {
     if (!isAndroid()) return;
-    try {
-      if (localStorage.getItem(UPDATE_READY_KEY)) setUpdateReady(true);
-    } catch {
-      // storage unavailable
-    }
+    let alive = true;
+    void (async () => {
+      try {
+        if (!localStorage.getItem(UPDATE_READY_KEY)) return;
+        const version = await getVersion();
+        const stillPending = await reconcileReadyMarker(version);
+        if (alive && stillPending) setUpdateReady(true);
+      } catch {
+        // storage / shell command unavailable — the event path still works
+      }
+    })();
     const onReady = () => setUpdateReady(true);
     window.addEventListener("daymark-update-ready", onReady);
-    return () => window.removeEventListener("daymark-update-ready", onReady);
+    return () => {
+      alive = false;
+      window.removeEventListener("daymark-update-ready", onReady);
+    };
   }, []);
 
   useEffect(() => {
@@ -953,15 +970,36 @@ export function App() {
         >
           <p className="update-dialog-title">{t("app.updateReadyBody")}</p>
           <p className="update-dialog-notes">{t("app.updateReadyHint")}</p>
+          {updatePermissionHint ? (
+            <p className="update-dialog-notes">
+              {t("app.updatePermissionHint")}
+            </p>
+          ) : null}
           <div className="update-dialog-actions">
-            <button type="button" onClick={() => setUpdateReady(false)}>
+            <button
+              type="button"
+              onClick={() => {
+                setUpdatePermissionHint(false);
+                setUpdateReady(false);
+              }}
+            >
               {t("common.later")}
             </button>
             <button
               type="button"
               className="primary"
               onClick={() => {
-                void openReadyUpdate().finally(() => setUpdateReady(false));
+                setUpdatePermissionHint(false);
+                void openReadyUpdate().then((outcome) => {
+                  // Keep the card when a system grant is needed first —
+                  // the marker stays set and the install continues when
+                  // the user returns.
+                  if (outcome === "permission") {
+                    setUpdatePermissionHint(true);
+                  } else {
+                    setUpdateReady(false);
+                  }
+                });
               }}
             >
               {t("app.installNow")}

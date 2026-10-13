@@ -57,7 +57,7 @@ export const syncZh: MessageTree = {
   notifyUpdateReadyTitle: "拾序更新已就绪",
   notifyUpdateFailedBody: "新版本下载不完整或失败，请打开应用重试。",
   notifyUpdateReadyBody: "新版本已下载完成，点按安装。",
-  notifyInstallFailedBody: "安装页启动失败：{error}",
+  notifyInstallFailedBody: "安装未能启动：{error}",
   noInstallableUpdate: "没有可安装的更新",
   shell: {
     windowControls: "窗口控制",
@@ -157,7 +157,7 @@ export const syncEn: MessageTree = {
   notifyUpdateFailedBody:
     "The new version didn’t download fully. Open the app to retry.",
   notifyUpdateReadyBody: "The new version is downloaded. Tap to install.",
-  notifyInstallFailedBody: "Couldn’t open the installer: {error}",
+  notifyInstallFailedBody: "Couldn’t start the install: {error}",
   noInstallableUpdate: "No installable update",
   shell: {
     windowControls: "Window controls",

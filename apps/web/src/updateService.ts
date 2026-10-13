@@ -91,12 +91,17 @@ export async function checkForUpdate(
   return { version: update.version, body: update.body ?? null, plugin: update };
 }
 
-export async function installUpdate(info: UpdateInfo): Promise<void> {
+/** Result of asking a platform to start an update install. */
+export type UpdateInstallStart = "started" | "permission";
+
+export async function installUpdate(
+  info: UpdateInfo,
+): Promise<UpdateInstallStart> {
   if (info.plugin) {
     await info.plugin.downloadAndInstall(undefined, {
       restartAfterInstall: true,
     });
-    return;
+    return "started";
   }
   if (info.androidUrl) {
     // Prefer GitHub Release CDN (fast), fall back to the VPS mirror when the
@@ -113,17 +118,17 @@ export async function installUpdate(info: UpdateInfo): Promise<void> {
           started.id,
           sources.filter((item) => item !== url),
         );
-        return;
+        return "started";
       } catch {
         // try next source
       }
     }
     // DownloadManager rejected every source → direct download-and-install.
-    await invoke("android_install_apk", {
+    const direct = await invoke<{ outcome?: string }>("android_install_apk", {
       url: mirrorUrl(),
       destPath: await join(await cacheDir(), UPDATE_APK_NAME),
     });
-    return;
+    return direct?.outcome === "permission" ? "permission" : "started";
   }
   throw new Error("No installable update");
 }
@@ -241,29 +246,89 @@ async function announceUpdateReady(): Promise<void> {
 }
 
 /**
- * Fire the installer for the ready package and clear the marker. Errors
- * surface as an error notification instead of dying silently (the old
- * `.catch(() => undefined)` hid real failures).
+ * Ask the system package installer to install the ready package.
+ *
+ * The marker is only cleared when the install request was actually
+ * initiated by the system (outcome "started"); the permission flow
+ * ("permission" — the 安装未知应用 settings page was opened) keeps it, so
+ * the package is never lost, and the install resumes automatically when
+ * the user comes back. Errors surface as an error notification instead
+ * of dying silently (the old `.catch(() => undefined)` hid real
+ * failures).
  */
-export async function openReadyUpdate(): Promise<void> {
+export async function openReadyUpdate(): Promise<
+  UpdateInstallStart | "failed"
+> {
   try {
-    await invoke("android_install_update");
+    const started = await invoke<{ outcome?: string }>(
+      "android_install_update",
+    );
+    if (started?.outcome === "permission") return "permission";
     try {
       localStorage.removeItem(UPDATE_READY_KEY);
     } catch {
       // ignore
     }
+    return "started";
   } catch (cause) {
-    try {
-      await sendNotification({
-        title: notice("sync.notifyUpdateTitle"),
-        body: notice("sync.notifyInstallFailedBody", {
-          error: cause instanceof Error ? cause.message : String(cause),
-        }),
-        extra: { kind: "update_failed" },
-      });
-    } catch {
-      // ignore
+    await announceInstallFailed(cause);
+    return "failed";
+  }
+}
+
+async function announceInstallFailed(cause: unknown): Promise<void> {
+  try {
+    await sendNotification({
+      title: notice("sync.notifyUpdateTitle"),
+      body: notice("sync.notifyInstallFailedBody", {
+        error: cause instanceof Error ? cause.message : String(cause),
+      }),
+      extra: { kind: "update_failed" },
+    });
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Launch-time truth check for the "update downloaded" marker: keep it
+ * only while the downloaded package is still a newer version than the
+ * running app. After the install went through — including the automatic
+ * continue after granting 安装未知应用, where JS never saw the install
+ * start — the app version has caught up (or the file is gone), and the
+ * stale marker is dropped instead of showing a dead install dialog.
+ */
+export async function reconcileReadyMarker(
+  currentVersion: string,
+): Promise<boolean> {
+  let marker: string | null;
+  try {
+    marker = localStorage.getItem(UPDATE_READY_KEY);
+  } catch {
+    marker = null;
+  }
+  if (!marker) return false;
+  try {
+    const state = await invoke<{
+      fileExists?: boolean;
+      fileVersion?: string | null;
+    }>("android_update_ready_state");
+    const fileVersion = state?.fileVersion ?? null;
+    if (
+      !state?.fileExists ||
+      !fileVersion ||
+      !isNewerVersion(fileVersion, currentVersion)
+    ) {
+      try {
+        localStorage.removeItem(UPDATE_READY_KEY);
+      } catch {
+        // ignore
+      }
+      return false;
     }
+    return true;
+  } catch {
+    // Could not verify — keep offering the install (previous behaviour).
+    return true;
   }
 }
