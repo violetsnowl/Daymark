@@ -26,7 +26,7 @@
      （提交 `32d0c09`），但本次 0.1.10→0.1.11 的安装仍由 0.1.10 的旧逻辑执行，
      **修复尚未被真正跑过**。
 - **状态**：⏸ **搁置，待后续集中处理**（0.1.13/0.1.14 用户实测：安装选择器仍被第三方接住，与 0.1.11 修复预期不符；MT管理器等 VIEW 处理器仍胜出。已确认 FLAG_SYSTEM 枚举不够，需再查 MIUI 系统安装器 Intent-filter / 白名单。**保留在本册，勿关单。**）
-- **根因修复（2026-10-13，已实现＋构建验证；待真机验证）**：不再调 Intent 筛选条件——安装环节**整体弃用** `ACTION_VIEW + APK MIME + resolveActivity/queryIntentActivities 枚举`，改为**系统 PackageInstaller 会话**（`PackageInstaller.Session`：写入会话 → `commit`；系统经 `DaymarkInstallReceiver` 回传 `STATUS_PENDING_USER_ACTION`，直接启动系统自带确认界面）。全程无 Intent 解析步骤，MT管理器/WPS 这类 APK VIEW 处理器**无从参与**；亦未硬编码任何厂商安装器包名。配套：装前校验（体积/ZIP 魔数 + 包名 + 签名一致）、未授权「安装未知应用」时自动打开系统设置页且**返回后自动续装**、web 侧安装标记只在请求正确发起后清除（启动时与下载包版本核对，清过期标记）。合并后 Manifest 与最终 APK 均已核验。**真机（小米 14 Ultra / HyperOS）验收通过前保持在本册勿关单。**
+- **根因修复（2026-10-13，已实现＋构建验证；真机首轮通过）**：不再调 Intent 筛选条件——安装环节**整体弃用** `ACTION_VIEW + APK MIME + resolveActivity/queryIntentActivities 枚举`，改为**系统 PackageInstaller 会话**（`PackageInstaller.Session`：写入会话 → `commit`；系统经 `DaymarkInstallReceiver` 回传 `STATUS_PENDING_USER_ACTION`，直接启动系统自带确认界面）。全程无 Intent 解析步骤，MT管理器/WPS 这类 APK VIEW 处理器**无从参与**；亦未硬编码任何厂商安装器包名。配套：装前校验（体积/ZIP 魔数 + 包名 + 签名一致）、未授权「安装未知应用」时自动打开系统设置页且**返回后自动续装**、web 侧安装标记由启动时版本核对统一治理（授权、取消、失败都不丢包；装上后或文件失效才清除——不误报成功、不留死标记）。合并后 Manifest 与最终 APK 均已核验。**真机（小米 14 Ultra / HyperOS）首轮实测通过：授权引导 → 返回自动续装 → 系统安装器拉起安装（2026-10-13）；取消/重试、失败与跨版本升级待续测——全部通过前保持在本册勿关单。**
 
 ### PR-002 · 服务器带宽瓶颈（根因未除）
 

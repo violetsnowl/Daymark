@@ -248,13 +248,14 @@ async function announceUpdateReady(): Promise<void> {
 /**
  * Ask the system package installer to install the ready package.
  *
- * The marker is only cleared when the install request was actually
- * initiated by the system (outcome "started"); the permission flow
- * ("permission" — the 安装未知应用 settings page was opened) keeps it, so
- * the package is never lost, and the install resumes automatically when
- * the user comes back. Errors surface as an error notification instead
- * of dying silently (the old `.catch(() => undefined)` hid real
- * failures).
+ * The "ready" marker is governed entirely by the launch-time check
+ * (reconcileReadyMarker): the permission flow ("permission" — the
+ * 安装未知应用 settings page was opened) never loses the package and the
+ * install resumes automatically when the user comes back; a cancel or
+ * failure keeps it too, so a retry does not re-download; a successful
+ * install is dropped on the next launch because the app version has
+ * caught up. Errors surface as an error notification instead of dying
+ * silently (the old `.catch(() => undefined)` hid real failures).
  */
 export async function openReadyUpdate(): Promise<
   UpdateInstallStart | "failed"
@@ -264,11 +265,6 @@ export async function openReadyUpdate(): Promise<
       "android_install_update",
     );
     if (started?.outcome === "permission") return "permission";
-    try {
-      localStorage.removeItem(UPDATE_READY_KEY);
-    } catch {
-      // ignore
-    }
     return "started";
   } catch (cause) {
     await announceInstallFailed(cause);
@@ -296,7 +292,9 @@ async function announceInstallFailed(cause: unknown): Promise<void> {
  * running app. After the install went through — including the automatic
  * continue after granting 安装未知应用, where JS never saw the install
  * start — the app version has caught up (or the file is gone), and the
- * stale marker is dropped instead of showing a dead install dialog.
+ * stale marker is dropped instead of showing a dead install dialog. A
+ * cancelled or failed install keeps the marker on purpose: the
+ * downloaded package survives for the next attempt (no re-download).
  */
 export async function reconcileReadyMarker(
   currentVersion: string,

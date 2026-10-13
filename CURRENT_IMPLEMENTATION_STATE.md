@@ -693,7 +693,8 @@ Gate 实测（2026-09-29 11:18）：`pnpm format:check` / `pnpm lint` / `pnpm ty
 
 - **背景**：小米/HyperOS 上应用内更新的"安装页"被 MT管理器/WPS 接住（PR-001；0.1.x 起多轮 Intent 筛选修补均无效）。
 - **方案（整体弃用旧链路，非增量调参）**：`ACTION_VIEW + APK MIME + resolveActivity/queryIntentActivities 处理器枚举` 全删；`DaymarkSettingsPlugin` 改为**系统 PackageInstaller 会话**——`createSession(MODE_FULL_INSTALL)` → `openWrite` 写入 + `fsync` → `commit(PendingIntent)`；新增 manifest 接收器 `DaymarkInstallReceiver`（exported=false）接 `STATUS_PENDING_USER_ACTION` 并直接 `startActivity(EXTRA_INTENT)`（系统自带确认界面、显式组件、无 Intent 解析）；`STATUS_SUCCESS`/失败状态记 logcat（tag `DaymarkInstall`）。旧 `<queries>`（APK VIEW 可见性）一并移除；FileProvider 本体保留（生成代码的相机/文件选择仍在用）。
-- **配套**：装前校验 = 体积下限 + ZIP 魔数 + **包名 + 签名 SHA-256 与当前应用一致**；`canRequestPackageInstalls()` 未授权 → 打开 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`，`Plugin.onResume` 检测到授权后**自动续装**（不丢包、不误报）；web `updateService`：标记只在 `outcome:"installing"` 时清除，启动时经新命令 `android_update_ready_state` 与下载包版本核对（文件丢失/已装上 → 清过期标记，覆盖"授权续装 JS 无感知"的陈旧标记）。
+- **配套**：装前校验 = 体积下限 + ZIP 魔数 + **包名 + 签名 SHA-256 与当前应用一致**；`canRequestPackageInstalls()` 未授权 → 打开 `ACTION_MANAGE_UNKNOWN_APP_SOURCES`，`Plugin.onResume` 检测到授权后**自动续装**（不丢包、不误报）；web `updateService`：安装标记由**启动时版本核对统一治理**（`android_update_ready_state`）——授权、取消、失败都不丢包（取消后重试免重下），安装成功或文件失效后清除，不误报成功、不留死标记。
 - **行为边界（如实）**：新机制下 MIUI 若弹自己的安装器 UI，那是系统安装器（角色持有者），不是第三方中介；会话失败**不静默回退**旧挑选逻辑（已删除），错误明确上报且保留安装包。**鸡生蛋**：0.2.2 → 下一版的首跳仍由 0.2.2 旧代码执行安装环节；从再下一版起走新机制，被接住则手动装一次破局。
 - **验证**：门控全 0（format:check/lint/typecheck/build；测试 **422 passed + 2 skipped**，含新增 `updateService.test.ts` 10 例；`cargo check` 0 警告）；Android release 构建 `BUILD_EXIT=0`；**合并后 Manifest 与最终 APK 均核验**（receiver/权限/无 queries；APK sha256 `c6c418e4…`，29,766,511 B，versionCode 2002，CN=Daymark 签名）。**未触发正式发布。**
-- **未验（不许写"真机通过"）**：小米 14 Ultra / HyperOS 六项真机验收——正常授权 / 未授权后授权 / 取消 / 失败 / 成功更新 / 更新后重启与本地数据保留；Kotlin 侧无测试基建，以构建 + 真机为准。
+- **真机进展（2026-10-13）**：**首轮实测通过**——未授权 → 自动跳「安装未知应用」设置页 → 授权返回自动续装 → 系统安装器（MIUI）拉起、无第三方 → 安装完成。**待续测**：取消/重试、失败、跨版本成功升级、更新后数据完整复核（全部通过前不许写"真机通过"）。Kotlin 侧无测试基建，以构建 + 真机为准。
+- **测试布置注意**：抬清单测试时下载的产物 = 线上正式资产（旧代码）——装完会把"测试包（新代码）"换回正式包，第二轮又走旧逻辑（首轮实测踩到）；要连续验证新机制，需让清单的下载地址指向新代码包。

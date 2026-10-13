@@ -44,12 +44,14 @@ describe("isNewerVersion", () => {
 });
 
 describe("openReadyUpdate", () => {
-  it("clears the marker only when the install request was initiated", async () => {
+  it("keeps the marker across install initiation — cleanup belongs to the launch check", async () => {
     localStorage.setItem(UPDATE_READY_KEY, "daymark-update.apk");
     mocks.invoke.mockResolvedValue({ outcome: "installing" });
     await expect(openReadyUpdate()).resolves.toBe("started");
     expect(mocks.invoke).toHaveBeenCalledWith("android_install_update");
-    expect(localStorage.getItem(UPDATE_READY_KEY)).toBeNull();
+    // A cancelled/failed install must not lose the package; the launch
+    // reconciliation drops the marker once the version catches up.
+    expect(localStorage.getItem(UPDATE_READY_KEY)).toBe("daymark-update.apk");
   });
 
   it("keeps the marker (and the package) when a grant is required first", async () => {
