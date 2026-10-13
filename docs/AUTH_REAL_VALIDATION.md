@@ -68,6 +68,7 @@ ONE HUMAN
 5. **Authentication → Email Templates**
    - 普通登录邮件改为 **OTP 模板**：正文包含 `{{ .Token }}`（6 位验证码）
    - 保留 recovery / verification 所需邮件流程，不要破坏 `{{ .ConfirmationURL }}` 的其它用途
+   - **2026-10-13 追记（邮件文案改哪里 · 常见找不到问题）**：邮件正文**不在仓库代码里**（`apps/api` 零邮件代码，全部邮件由 Supabase Auth + 163 SMTP 发送）。改文案去 **Dashboard → Authentication → Email Templates**（直链 `https://supabase.com/dashboard/project/xaqmzjhvewkrpnqaunwd/auth/templates`）：登录/注册验证码走 **"Magic link or OTP"** 页、重置密码走 **"Reset password"** 页、换绑邮箱走 **"Change email address"** 页。改完**即生效、无需发版**；**红线：正文必须保留 `{{ .Token }}`**（丢了邮件就没有验证码）。当前机制**全部为验证码式**（客户端只实现输码 `verifyOtp`），链接点击式未启用——桌面/安卓壳的 `emailRedirectTo` 是壳内 origin，系统浏览器打不开，链接式对这些端天然不可用。
 6. **Rate limits / CAPTCHA**
    - 邮件、短信发送频率限制保持开启（登录 UI 已按 60s 倒计时限制重发）
    - 如开启 CAPTCHA，需要 `signInWithOtp({ options: { captchaToken } })` 适配
